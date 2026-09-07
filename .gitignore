@@ -1,0 +1,10 @@
+# Large source files not needed to run the game
+*.blend
+*.blend1
+file_model/forest-monster.zip
+
+# OS / editor junk
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
