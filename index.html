@@ -1,0 +1,1745 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>MISSION: ZERO BRIBE - เกมนักสืบพิชิตสินบน</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap");
+
+      * {
+        font-family: "Kanit", sans-serif;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: manipulation;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #0d1117;
+        color: #ffffff;
+      }
+
+      #canvas-container {
+        width: 100vw;
+        height: 100vh;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+      }
+
+      .glass-panel {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+
+      .glow-box-yellow {
+        box-shadow: 0 0 25px rgba(234, 179, 8, 0.5);
+      }
+
+      .glow-box-red {
+        box-shadow: 0 0 25px rgba(239, 68, 68, 0.5);
+      }
+
+      .glow-box-green {
+        box-shadow: 0 0 25px rgba(34, 197, 94, 0.5);
+      }
+
+      @keyframes floatUp {
+        0% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        100% {
+          opacity: 0;
+          transform: translateY(-50px) scale(1.3);
+        }
+      }
+
+      .float-text {
+        position: absolute;
+        animation: floatUp 1s ease-out forwards;
+        pointer-events: none;
+        font-weight: bold;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+      }
+
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.2);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body class="overflow-hidden">
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Overlay Layer -->
+    <div
+      id="ui-layer"
+      class="relative z-10 w-full h-screen pointer-events-none flex flex-col justify-between p-3 sm:p-4"
+    >
+      <!-- Top HUD -->
+      <div
+        id="hud"
+        class="hidden flex-wrap justify-between items-center gap-2 pointer-events-auto"
+      >
+        <!-- Stats -->
+        <div
+          class="glass-panel px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl flex items-center gap-3 text-xs sm:text-base border border-amber-500/30"
+        >
+          <div class="flex items-center gap-1.5">
+            <span class="text-base sm:text-xl">👤</span>
+            <span id="hud-player-name" class="font-semibold text-amber-400"
+              >AGNT</span
+            >
+          </div>
+          <div class="h-4 w-px bg-white/20"></div>
+          <div class="flex items-center gap-1">
+            <span class="text-base sm:text-xl" id="hud-lives">❤️❤️</span>
+          </div>
+          <div class="h-4 w-px bg-white/20"></div>
+          <div class="flex items-center gap-1">
+            <span class="text-base sm:text-xl">🏆</span>
+            <span id="hud-score" class="font-bold text-yellow-400">0</span>
+          </div>
+          <div class="h-4 w-px bg-white/20"></div>
+          <div class="flex items-center gap-1">
+            <span class="text-base sm:text-xl">📋</span>
+            <span id="hud-progress" class="font-bold text-amber-300">0/5</span>
+          </div>
+        </div>
+
+        <!-- Timer & Controls -->
+        <div class="flex items-center gap-2">
+          <div
+            class="glass-panel px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl flex items-center gap-1.5 text-xs sm:text-base border border-cyan-500/30"
+          >
+            <span class="text-base sm:text-xl">⏱️</span>
+            <span
+              id="hud-timer"
+              class="font-mono font-bold text-cyan-400 text-sm sm:text-lg"
+              >03:00</span
+            >
+          </div>
+          <button
+            id="btn-sound"
+            class="glass-panel p-2 rounded-2xl hover:bg-white/10 active:scale-95 transition pointer-events-auto"
+          >
+            <span id="sound-icon" class="text-base sm:text-xl">🔊</span>
+          </button>
+          <button
+            id="btn-home"
+            class="glass-panel px-3 py-1.5 sm:py-2 rounded-2xl hover:bg-red-500/20 hover:border-red-500/50 text-red-400 font-bold transition text-xs sm:text-sm flex items-center gap-1 pointer-events-auto"
+          >
+            <span>🏠</span> <span class="hidden sm:inline">หน้าหลัก</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Floating Name Tag Canvas Overlay Container -->
+      <div
+        id="nametag-container"
+        class="absolute top-0 left-0 w-full h-full pointer-events-none"
+      ></div>
+
+      <!-- Virtual Joystick Area (Mobile) -->
+      <div
+        id="joystick-zone"
+        class="sm:hidden absolute bottom-6 left-6 w-32 h-32 rounded-full border-2 border-white/20 bg-white/5 backdrop-blur-sm pointer-events-auto flex items-center justify-center touch-none hidden"
+      >
+        <div
+          id="joystick-knob"
+          class="w-12 h-12 rounded-full bg-amber-500/70 shadow-lg transform translate-x-0 translate-y-0"
+        ></div>
+      </div>
+    </div>
+
+    <!-- MODAL CONTAINERS -->
+
+    <!-- START SCREEN -->
+    <div
+      id="screen-start"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md"
+    >
+      <div
+        class="glass-panel max-w-md w-full p-6 sm:p-8 rounded-3xl text-center border border-amber-500/40 glow-box-yellow"
+      >
+        <div
+          class="inline-block p-3 rounded-2xl bg-amber-500/10 mb-3 border border-amber-500/30"
+        >
+          <span class="text-4xl">🕵️‍♂️</span>
+        </div>
+        <h1
+          class="text-2xl sm:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 mb-1"
+        >
+          MISSION: ZERO BRIBE
+        </h1>
+        <p class="text-xs sm:text-sm text-slate-300 mb-6 font-medium">
+          เกมนักสืบพิชิตสินบน<br />
+          <span class="text-amber-400 font-semibold"
+            >“คิดให้เป็น แยกให้ชัด ตัดสินใจอย่างโปร่งใส”</span
+          >
+        </p>
+
+        <div class="space-y-4 mb-6 text-left">
+          <div>
+            <label class="block text-xs text-slate-400 mb-1 font-semibold"
+              >ชื่อนักสืบ (AGENT NAME):</label
+            >
+            <input
+              type="text"
+              id="input-player-name"
+              placeholder="กรอกชื่อของคุณ..."
+              maxlength="15"
+              class="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-3 text-amber-300 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition font-bold"
+            />
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-3">
+          <button
+            id="btn-start-mission"
+            class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 font-extrabold rounded-xl shadow-lg shadow-amber-500/20 active:scale-95 transition text-lg flex items-center justify-center gap-2"
+          >
+            <span>🚀</span> START MISSION
+          </button>
+          <button
+            id="btn-how-to-play"
+            class="w-full py-2.5 glass-panel hover:bg-white/10 text-slate-300 font-semibold rounded-xl active:scale-95 transition text-sm"
+          >
+            🎮 วิธีการเล่น
+          </button>
+        </div>
+
+        <p class="text-xs text-slate-400 mt-6 border-t border-slate-800 pt-4">
+          ⏱️ ใช้เวลาเล่นประมาณ 3 นาที | ตอบครบ 5 ข้อ = ผ่านภารกิจ
+        </p>
+      </div>
+    </div>
+
+    <!-- HOW TO PLAY MODAL -->
+    <div
+      id="modal-how-to"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm hidden"
+    >
+      <div
+        class="glass-panel max-w-sm w-full p-6 rounded-3xl text-left border border-slate-700"
+      >
+        <h2
+          class="text-xl font-bold text-amber-400 mb-4 flex items-center gap-2"
+        >
+          <span>🎮</span> วิธีการเล่น
+        </h2>
+        <div class="space-y-3 text-sm text-slate-200">
+          <p class="flex items-start gap-2">
+            🏃
+            <span
+              ><b>การเคลื่อนที่:</b> ปุ่ม WASD / ลูกศร หรือ
+              ลากจอยสติ๊กบนมือถือ</span
+            >
+          </p>
+          <p class="flex items-start gap-2">
+            ❤️ <span><b>พลังชีวิต:</b> มีหัวใจ 2 ดวง โดนศัตรูได้ 2 ครั้ง</span>
+          </p>
+          <p class="flex items-start gap-2">
+            🟧
+            <span><b>กล่องสีส้ม:</b> เก็บเพื่อรับคะแนนโบนัส (+10 SCORE)</span>
+          </p>
+          <p class="flex items-start gap-2">
+            🟨
+            <span
+              ><b>กล่องคำถาม (?):</b> เดินชนเพื่อตอบคำถามเกี่ยวกับสินบน</span
+            >
+          </p>
+          <p class="flex items-start gap-2">
+            ⭐ <span><b>ตอบถูก:</b> รับ +50 SCORE และ +1 ดาว</span>
+          </p>
+          <p class="flex items-start gap-2">
+            🏆
+            <span
+              ><b>เป้าหมาย:</b> ตอบคำถามครบ <b>5 ข้อ</b> เพื่อผ่านภารกิจ!</span
+            >
+          </p>
+        </div>
+        <button
+          id="btn-close-how-to"
+          class="w-full mt-6 py-2.5 bg-slate-700 hover:bg-slate-600 font-bold rounded-xl active:scale-95 transition"
+        >
+          เข้าใจแล้ว
+        </button>
+      </div>
+    </div>
+
+    <!-- QUESTION MODAL -->
+    <div
+      id="modal-question"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md hidden"
+    >
+      <div
+        class="glass-panel max-w-lg w-full p-5 sm:p-7 rounded-3xl border border-amber-500/50 glow-box-yellow text-left"
+      >
+        <div class="flex justify-between items-center mb-3">
+          <span
+            class="text-xs font-bold tracking-wider text-amber-400 uppercase bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30"
+          >
+            🔎 CASE QUESTION
+          </span>
+          <span
+            id="question-progress"
+            class="text-xs font-mono font-bold text-slate-400"
+          >
+            QUESTION 01 / 05
+          </span>
+        </div>
+
+        <h3
+          id="question-text"
+          class="text-sm sm:text-base font-bold text-white mb-5 leading-relaxed"
+        >
+          คำถามจะปรากฏที่นี่...
+        </h3>
+
+        <div id="options-container" class="space-y-2 mb-4">
+          <!-- Dynamic Options -->
+        </div>
+
+        <!-- Feedback Area -->
+        <div
+          id="question-feedback"
+          class="hidden p-3 rounded-xl text-xs sm:text-sm font-medium leading-relaxed transition"
+        >
+          <div
+            id="feedback-title"
+            class="font-bold text-sm sm:text-base mb-1"
+          ></div>
+          <div id="feedback-explanation" class="text-slate-200"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MISSION COMPLETE MODAL -->
+    <div
+      id="modal-complete"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md hidden"
+    >
+      <div
+        class="glass-panel max-w-md w-full p-6 sm:p-8 rounded-3xl text-center border border-emerald-500/50 glow-box-green"
+      >
+        <div class="text-5xl mb-2 animate-bounce">🎉</div>
+        <h2 class="text-2xl sm:text-3xl font-extrabold text-emerald-400 mb-1">
+          MISSION COMPLETE!
+        </h2>
+        <p class="text-xs sm:text-sm text-slate-300 mb-5">
+          ตอบคำถามครบ 5 ข้อแล้ว! คุณผ่านภารกิจ ZERO BRIBE
+        </p>
+
+        <div
+          class="bg-slate-900/80 rounded-2xl p-4 border border-slate-800 space-y-2.5 mb-5 text-left"
+        >
+          <div class="flex justify-between text-sm">
+            <span class="text-slate-400">นักสืบ:</span>
+            <span id="complete-name" class="font-bold text-white">AGENT</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span class="text-slate-400">คะแนนรวม (SCORE):</span>
+            <span id="complete-score" class="font-bold text-yellow-400 text-lg"
+              >0</span
+            >
+          </div>
+          <div class="flex justify-between text-sm">
+            <span class="text-slate-400">ดาวที่ได้รับ (STARS):</span>
+            <span id="complete-stars" class="font-bold text-amber-300"
+              >0 / 5 ⭐</span
+            >
+          </div>
+          <div
+            class="border-t border-slate-800 pt-2.5 flex justify-between items-center"
+          >
+            <span class="text-xs text-slate-400"
+              >ระดับความเชี่ยวชาญ (RANK):</span
+            >
+            <span
+              id="complete-rank"
+              class="font-extrabold text-amber-400 px-2.5 py-1 bg-amber-500/10 rounded-lg border border-amber-500/30 text-xs"
+            >
+              ZERO BRIBE MASTER
+            </span>
+          </div>
+        </div>
+
+        <div
+          class="p-3 bg-amber-500/10 rounded-xl border border-amber-500/30 mb-5 text-xs text-amber-300 font-medium leading-relaxed"
+        >
+          “คิดให้เป็น แยกให้ชัด ตัดสินใจอย่างโปร่งใส”<br />
+          ร่วมสร้างสังคมไทยไร้สินบน! 🛡️
+        </div>
+
+        <div class="space-y-2.5">
+          <a
+            href="https://forms.gle/EEervrQ3xcTsBNqY8"
+            target="_blank"
+            rel="noopener noreferrer"
+            id="btn-quiz-link"
+            class="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-extrabold rounded-xl shadow-lg active:scale-95 transition text-sm flex items-center justify-center gap-2"
+          >
+            📝 ไปทำแบบทดสอบความรู้
+          </a>
+          <button
+            id="btn-restart-win"
+            class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl active:scale-95 transition text-sm"
+          >
+            🔄 เล่นใหม่อีกครั้ง
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- GAME OVER / TIME OUT MODAL -->
+    <div
+      id="modal-failed"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md hidden"
+    >
+      <div
+        id="failed-box"
+        class="glass-panel max-w-md w-full p-6 sm:p-8 rounded-3xl text-center border border-red-500/50 glow-box-red"
+      >
+        <div id="failed-icon" class="text-5xl mb-2">🚨</div>
+        <h2
+          id="failed-title"
+          class="text-2xl sm:text-3xl font-extrabold text-red-500 mb-1"
+        >
+          CORRUPTION DETECTED
+        </h2>
+        <p id="failed-subtitle" class="text-xs sm:text-sm text-slate-300 mb-5">
+          หัวใจหมด! คุณถูกจับโดยคอร์รัปชัน
+        </p>
+
+        <div
+          class="bg-slate-900/80 rounded-2xl p-4 border border-slate-800 space-y-2 mb-5"
+        >
+          <div class="flex justify-between text-sm">
+            <span class="text-slate-400">คะแนนทำได้:</span>
+            <span id="failed-score" class="font-bold text-yellow-400">0</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span class="text-slate-400">ตอบคำถามสำเร็จ:</span>
+            <span id="failed-questions" class="font-bold text-amber-300"
+              >0 / 5 ข้อ</span
+            >
+          </div>
+        </div>
+
+        <div class="flex gap-3">
+          <button
+            id="btn-restart-fail"
+            class="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white font-extrabold rounded-xl active:scale-95 transition text-sm"
+          >
+            🔄 เล่นใหม่
+          </button>
+          <button
+            id="btn-home-fail"
+            class="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl active:scale-95 transition text-sm"
+          >
+            🏠 หน้าหลัก
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAUSE / HOME CONFIRM MODAL -->
+    <div
+      id="modal-pause"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm hidden"
+    >
+      <div
+        class="glass-panel max-w-sm w-full p-6 rounded-3xl text-center border border-slate-700"
+      >
+        <h3 class="text-lg font-bold text-white mb-2">
+          ⏸️ ยืนยันการออกจากภารกิจ?
+        </h3>
+        <p class="text-xs text-slate-300 mb-6 leading-relaxed">
+          หากออกจากเกมระหว่างทำภารกิจ<br />ความก้าวหน้าในรอบนี้จะสิ้นสุดลงทันที
+        </p>
+        <div class="flex gap-3">
+          <button
+            id="btn-resume"
+            class="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl active:scale-95 transition text-sm"
+          >
+            ❌ เล่นต่อ
+          </button>
+          <button
+            id="btn-confirm-quit"
+            class="flex-1 py-2.5 bg-red-600/80 hover:bg-red-600 text-white font-bold rounded-xl active:scale-95 transition text-sm"
+          >
+            🏠 ยอมแพ้
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+      /* ==========================================================================
+           1. GAME CONFIG & QUESTION BANK
+           ========================================================================== */
+      const CONFIG = {
+        GAME_TIME: 180,
+        WORLD_SIZE: 100,
+        PLAYER_SPEED: 0.18,
+        ENEMY_SPEED: 0.065,
+        ENEMY_DETECT_DIST: 18,
+        TOTAL_QUESTIONS_PER_GAME: 5,
+        MAX_LIVES: 2,
+      };
+
+      const QUESTION_BANK = [
+        {
+          q: "ข้อใดอธิบายลักษณะของ 'สินบน' ได้ถูกต้องที่สุด?",
+          options: [
+            "A. การให้ของขวัญแก่เพื่อนในวันเกิด",
+            "B. การให้หรือเสนอผลประโยชน์เพื่อจูงใจให้ใช้อำนาจหรือหน้าที่ในทางที่ผิด",
+            "C. การช่วยเหลือผู้อื่นโดยไม่หวังผลตอบแทน",
+            "D. การทำงานร่วมกันเป็นทีมในองค์กร",
+          ],
+          ans: 1,
+          exp: "สินบนมีลักษณะของการให้ เสนอ หรือรับผลประโยชน์ เพื่อจูงใจให้มีการกระทำหรือไม่กระทำบางอย่างที่เกี่ยวกับหน้าที่",
+        },
+        {
+          q: "ข้อใดเป็นตัวอย่างของ 'ประโยชน์ทับซ้อน' (Conflict of Interest)?",
+          options: [
+            "A. เจ้าหน้าที่ทำงานเอกสารตามขั้นตอนปกติ",
+            "B. เจ้าหน้าที่ปฏิเสธการรับของขวัญราคาแพง",
+            "C. กรรมการจัดซื้อพิจารณาเลือกบริษัทของญาติสนิทตนเอง",
+            "D. เจ้าหน้าที่ตรวจสอบเอกสารอย่างละเอียด",
+          ],
+          ans: 2,
+          exp: "เกิดจากผลประโยชน์ส่วนตัวหรือความสัมพันธ์ส่วนตัว เข้ามามีอิทธิพลต่อการตัดสินใจปฏิบัติหน้าที่ส่วนรวม",
+        },
+        {
+          q: "ข้อใดกล่าวถูกต้องเกี่ยวกับ 'ประโยชน์ทับซ้อน'?",
+          options: [
+            "A. ต้องมีการรับเงินเป็นจำนวนมากเสมอ",
+            "B. ต้องเกิดการทุจริตเสียหายแล้วเท่านั้น",
+            "C. ต้องมีการมอบของขวัญราคาแพงเสมอ",
+            "D. ไม่จำเป็นต้องมีเรื่องเงินหรือของขวัญก็เกิดขึ้นได้",
+          ],
+          ans: 3,
+          exp: "ประโยชน์ทับซ้อนอาจเกิดจากความสัมพันธ์ สิทธิพิเศษ หรือผลประโยชน์ทางแอบแฝง โดยไม่จำเป็นต้องเป็นเงินสด",
+        },
+        {
+          q: "บริษัทเสนอเงินให้เจ้าหน้าที่ เพื่อช่วยให้ได้รับคัดเลือกเข้าทำงาน สถานการณ์นี้คืออะไร?",
+          options: [
+            "A. การให้สินบน",
+            "B. การทำงานเป็นทีม",
+            "C. การบริการลูกค้า",
+            "D. การประชาสัมพันธ์",
+          ],
+          ans: 0,
+          exp: "เป็นการเสนอเงินแลกเปลี่ยนกับการใช้อำนาจหน้าที่เพื่อให้ได้สิทธิพิเศษ ถือเป็นการให้สินบน",
+        },
+        {
+          q: "คุณเป็นกรรมการจัดซื้อ แต่บริษัทของญาติเข้าร่วมเสนอราคา คุณควรทำอย่างไร?",
+          options: [
+            "A. ช่วยเหลือญาติเพราะเป็นคนกันเอง",
+            "B. ทำเป็นไม่รู้ไม่ชี้และช่วยให้ชนะ",
+            "C. แจ้งเปิดเผยความเกี่ยวข้องและถอนตัวจากการพิจารณา",
+            "D. เรียกรับเงินจากญาติเพิ่ม",
+          ],
+          ans: 2,
+          exp: "การเปิดเผยความเกี่ยวข้อง (Disclosure) และถอนตัว เป็นวิธีจัดการประโยชน์ทับซ้อนที่ถูกต้องและโปร่งใส",
+        },
+        {
+          q: "หากพบสถานการณ์ที่ไม่แน่ใจว่าควรรับของขวัญหรือประโยชน์หรือไม่ ควรทำอย่างไร?",
+          options: [
+            "A. รับไว้ก่อนแล้วค่อยคิดทีหลัง",
+            "B. ตัดสินใจตามความสนิทสนม",
+            "C. ตรวจสอบกฎ ระเบียบ และหลักเกณฑ์ที่เกี่ยวข้อง",
+            "D. ไม่ต้องสนใจ ทำตามคนอื่น",
+          ],
+          ans: 2,
+          exp: "เมื่อไม่แน่ใจ ให้ยึดการตรวจสอบกฎ ระเบียบ และจริยธรรมขององค์กรเป็นหลัก",
+        },
+        {
+          q: "เพื่อนขอให้ช่วยเซ็นชื่อเข้าเรียนแทน สถานการณ์นี้เกี่ยวข้องกับเรื่องใดมากที่สุด?",
+          options: [
+            "A. สินบนข้ามชาติ",
+            "B. ประโยชน์ทับซ้อนเชิงนโยบาย",
+            "C. ความซื่อสัตย์สุจริตและจริยธรรม",
+            "D. การจัดซื้อจัดจ้าง",
+          ],
+          ans: 2,
+          exp: "การเซ็นชื่อแทนกันเป็นเรื่องของความซื่อสัตย์สุจริตขั้นพื้นฐานและจริยธรรมส่วนบุคคล",
+        },
+        {
+          q: "ข้อใดคือหลักคิด STOP – THINK – CHECK เมื่อเผชิญสถานการณ์เสี่ยง?",
+          options: [
+            "A. หยุดทำความดี - คิดเอาเปรียบ - ตรวจสอบช่องโหว่",
+            "B. หยุดคิด - ทำตามเพื่อน - ไม่ตรวจสอบ",
+            "C. หยุดคิดก่อนทำ - วิเคราะห์ความถูกต้อง - ตรวจสอบกฎระเบียบ",
+            "D. รับเงิน - คิดวิธีซ่อน - เช็คความปลอดภัย",
+          ],
+          ans: 2,
+          exp: "STOP (หยุดตั้งสติ) -> THINK (คิดถึงความถูกต้อง) -> CHECK (ตรวจสอบกฎระเบียบ) ก่อนตัดสินใจ",
+        },
+        {
+          q: "ข้อใดเป็นการแยกผลประโยชน์ส่วนตัวออกจากหน้าที่อย่างเหมาะสม?",
+          options: [
+            "A. ใช้รถราชการไปทำธุระส่วนตัว",
+            "B. ให้สิทธิพิเศษกับเพื่อนสนิทก่อนผู้อื่น",
+            "C. ปฏิบัติหน้าที่ตามหลักเกณฑ์โดยไม่เอื้อประโยชน์แก่คนใกล้ชิด",
+            "D. รับของขวัญปีใหม่เพื่อตอบแทนการอนุมัติงาน",
+          ],
+          ans: 2,
+          exp: "การปฏิบัติหน้าที่อย่างเท่าเทียมตามเกณฑ์ โดยไม่เอาความสัมพันธ์ส่วนตัวมาปะปน ถือเป็นความโปร่งใส",
+        },
+        {
+          q: "แนวทางปฏิบัติใดถือว่ามีความ 'โปร่งใส' มากที่สุด?",
+          options: [
+            "A. ปกปิดข้อมูลเพื่อไม่ให้เกิดปัญหา",
+            "B. ตัดสินใจในสิ่งที่ตนเองได้ประโยชน์สูงสุด",
+            "C. เปิดเผยข้อมูล ยึดหลักเกณฑ์ และยึดประโยชน์ส่วนรวม",
+            "D. ทำตามคำสั่งที่ไม่ถูกต้องของผู้มีอำนาจ",
+          ],
+          ans: 2,
+          exp: "ความโปร่งใสคือการทำงานที่เปิดเผย ตรวจสอบได้ ยึดกติกา และเห็นแก่ประโยชน์ส่วนรวมเป็นหลัก",
+        },
+      ];
+
+      /* ==========================================================================
+           2. SOUND SYSTEM (WEB AUDIO API)
+           ========================================================================== */
+      class SoundSystem {
+        constructor() {
+          this.ctx = null;
+          this.enabled = true;
+        }
+
+        init() {
+          if (!this.ctx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioCtx();
+          }
+          if (this.ctx && this.ctx.state === "suspended") {
+            this.ctx.resume();
+          }
+        }
+
+        playTone(freq, type, duration, vol = 0.1) {
+          if (!this.enabled) return;
+          this.init();
+          try {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+            gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(
+              0.0001,
+              this.ctx.currentTime + duration,
+            );
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start();
+            osc.stop(this.ctx.currentTime + duration);
+          } catch (e) {}
+        }
+
+        playStart() {
+          this.playTone(440, "triangle", 0.1, 0.15);
+          setTimeout(() => this.playTone(880, "sine", 0.2, 0.2), 100);
+        }
+
+        playScore() {
+          this.playTone(587.33, "sine", 0.08, 0.1);
+          setTimeout(() => this.playTone(880, "sine", 0.15, 0.15), 60);
+        }
+
+        playQuestion() {
+          this.playTone(523.25, "triangle", 0.1, 0.15);
+          setTimeout(() => this.playTone(659.25, "triangle", 0.1, 0.15), 80);
+          setTimeout(() => this.playTone(783.99, "triangle", 0.2, 0.2), 160);
+        }
+
+        playCorrect() {
+          this.playTone(523.25, "sine", 0.1, 0.2);
+          setTimeout(() => this.playTone(659.25, "sine", 0.1, 0.2), 90);
+          setTimeout(() => this.playTone(783.99, "sine", 0.1, 0.2), 180);
+          setTimeout(() => this.playTone(1046.5, "sine", 0.3, 0.25), 270);
+        }
+
+        playWrong() {
+          this.playTone(220, "sawtooth", 0.15, 0.2);
+          setTimeout(() => this.playTone(185, "sawtooth", 0.3, 0.2), 150);
+        }
+
+        playHit() {
+          this.playTone(150, "sawtooth", 0.2, 0.3);
+          setTimeout(() => this.playTone(100, "sawtooth", 0.25, 0.3), 100);
+        }
+
+        playWin() {
+          const notes = [440, 554.37, 659.25, 880, 1108.73];
+          notes.forEach((n, i) => {
+            setTimeout(() => this.playTone(n, "sine", 0.25, 0.2), i * 120);
+          });
+        }
+
+        playGameOver() {
+          this.playTone(300, "sawtooth", 0.2, 0.2);
+          setTimeout(() => this.playTone(250, "sawtooth", 0.2, 0.2), 180);
+          setTimeout(() => this.playTone(200, "sawtooth", 0.4, 0.25), 360);
+        }
+      }
+
+      const audio = new SoundSystem();
+
+      /* ==========================================================================
+           3. GAME STATE & GLOBAL VARS
+           ========================================================================== */
+      let state = {
+        playerName: "AGENT",
+        score: 0,
+        stars: 0,
+        lives: CONFIG.MAX_LIVES,
+        timer: CONFIG.GAME_TIME,
+        isPaused: true,
+        isPlaying: false,
+        currentQuestionIndex: 0,
+        answeredQuestions: 0,
+        activeQuestions: [],
+        isInvulnerable: false,
+      };
+
+      let scene, camera, renderer;
+      let player, nameTagElement;
+      let enemies = [];
+      let scoreBoxes = [];
+      let questionBoxes = [];
+      let obstacles = []; // Collision Boxes for Trees and Buildings
+      let clock = new THREE.Clock();
+      let timerInterval = null;
+
+      // Input Tracking
+      const keys = { w: false, a: false, s: false, d: false };
+      let joystickVector = { x: 0, y: 0 };
+      let touchStartPos = null;
+
+      /* ==========================================================================
+           4. THREE.JS SCENE SETUP
+           ========================================================================== */
+      function initThree() {
+        const container = document.getElementById("canvas-container");
+
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xfd7e14);
+        scene.fog = new THREE.FogExp2(0xd946ef, 0.012);
+
+        camera = new THREE.PerspectiveCamera(
+          55,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          300,
+        );
+
+        renderer = new THREE.WebGLRenderer({
+          antialias: true,
+          powerPreference: "high-performance",
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffedd5, 0.7);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffeedd, 1.2);
+        sunLight.position.set(40, 60, 20);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 1024;
+        sunLight.shadow.mapSize.height = 1024;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 200;
+        const d = 60;
+        sunLight.shadow.camera.left = -d;
+        sunLight.shadow.camera.right = d;
+        sunLight.shadow.camera.top = d;
+        sunLight.shadow.camera.bottom = -d;
+        scene.add(sunLight);
+
+        buildVoxelWorld();
+        window.addEventListener("resize", onWindowResize);
+      }
+
+      /* ==========================================================================
+           5. VOXEL WORLD BUILDER WITH OBSTACLE COLLIDERS
+           ========================================================================== */
+      function buildVoxelWorld() {
+        obstacles = [];
+        const size = CONFIG.WORLD_SIZE;
+
+        const groundGeo = new THREE.PlaneGeometry(size, size);
+        const groundMat = new THREE.MeshStandardMaterial({
+          color: 0x15803d,
+          roughness: 0.8,
+        });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        const gridHelper = new THREE.GridHelper(
+          size,
+          size / 2,
+          0x166534,
+          0x166534,
+        );
+        gridHelper.position.y = 0.02;
+        scene.add(gridHelper);
+
+        // Outer Boundary Walls
+        const wallMat = new THREE.MeshStandardMaterial({
+          color: 0x1e293b,
+          roughness: 0.5,
+        });
+        const wallHeight = 4;
+        const half = size / 2;
+
+        const createWall = (w, h, d, x, y, z) => {
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+          mesh.position.set(x, y, z);
+          mesh.receiveShadow = true;
+          mesh.castShadow = true;
+          scene.add(mesh);
+
+          obstacles.push(new THREE.Box3().setFromObject(mesh));
+        };
+
+        createWall(size, wallHeight, 2, 0, wallHeight / 2, -half);
+        createWall(size, wallHeight, 2, 0, wallHeight / 2, half);
+        createWall(2, wallHeight, size, -half, wallHeight / 2, 0);
+        createWall(2, wallHeight, size, half, wallHeight / 2, 0);
+
+        // Random Trees & Buildings
+        const treeMat = new THREE.MeshStandardMaterial({ color: 0x16a34a });
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x78350f });
+        const buildingMat = new THREE.MeshStandardMaterial({ color: 0x334155 });
+        const windowMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+
+        for (let i = 0; i < 35; i++) {
+          const rx = (Math.random() - 0.5) * (size - 16);
+          const rz = (Math.random() - 0.5) * (size - 16);
+
+          if (Math.abs(rx) < 12 && Math.abs(rz) < 12) continue;
+
+          if (Math.random() > 0.4) {
+            const treeGroup = new THREE.Group();
+            const trunk = new THREE.Mesh(
+              new THREE.BoxGeometry(1.2, 3, 1.2),
+              trunkMat,
+            );
+            trunk.position.y = 1.5;
+            trunk.castShadow = true;
+            treeGroup.add(trunk);
+
+            const leaves = new THREE.Mesh(
+              new THREE.BoxGeometry(3.5, 4, 3.5),
+              treeMat,
+            );
+            leaves.position.y = 4.5;
+            leaves.castShadow = true;
+            treeGroup.add(leaves);
+
+            treeGroup.position.set(rx, 0, rz);
+            scene.add(treeGroup);
+
+            // Add Tree Trunk as obstacle
+            const box = new THREE.Box3();
+            box.setFromCenterAndSize(
+              new THREE.Vector3(rx, 1.5, rz),
+              new THREE.Vector3(1.4, 3, 1.4),
+            );
+            obstacles.push(box);
+          } else {
+            const bWidth = 6 + Math.random() * 6;
+            const bHeight = 8 + Math.random() * 10;
+            const bDepth = 6 + Math.random() * 6;
+
+            const building = new THREE.Mesh(
+              new THREE.BoxGeometry(bWidth, bHeight, bDepth),
+              buildingMat,
+            );
+            building.position.set(rx, bHeight / 2, rz);
+            building.castShadow = true;
+            building.receiveShadow = true;
+            scene.add(building);
+
+            const win = new THREE.Mesh(
+              new THREE.BoxGeometry(bWidth + 0.1, 1, bDepth + 0.1),
+              windowMat,
+            );
+            win.position.set(rx, bHeight * 0.7, rz);
+            scene.add(win);
+
+            // Add Building as obstacle
+            const box = new THREE.Box3();
+            box.setFromCenterAndSize(
+              new THREE.Vector3(rx, bHeight / 2, rz),
+              new THREE.Vector3(bWidth, bHeight, bDepth),
+            );
+            obstacles.push(box);
+          }
+        }
+      }
+
+      /* ==========================================================================
+           6. VOXEL PLAYER CREATION
+           ========================================================================== */
+      function createPlayer() {
+        player = new THREE.Group();
+
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0xfbcfe8 });
+        const suitMat = new THREE.MeshStandardMaterial({ color: 0x0284c7 });
+        const darkMat = new THREE.MeshStandardMaterial({ color: 0x0f172a });
+
+        const head = new THREE.Mesh(
+          new THREE.BoxGeometry(1.2, 1.2, 1.2),
+          skinMat,
+        );
+        head.position.y = 2.4;
+        head.castShadow = true;
+        player.add(head);
+
+        const visor = new THREE.Mesh(
+          new THREE.BoxGeometry(1.22, 0.35, 0.4),
+          darkMat,
+        );
+        visor.position.set(0, 2.5, 0.45);
+        player.add(visor);
+
+        const body = new THREE.Mesh(
+          new THREE.BoxGeometry(1.3, 1.4, 0.8),
+          suitMat,
+        );
+        body.position.y = 1.2;
+        body.castShadow = true;
+        player.add(body);
+
+        const armGeo = new THREE.BoxGeometry(0.4, 1.2, 0.4);
+        player.leftArm = new THREE.Mesh(armGeo, suitMat);
+        player.leftArm.position.set(-0.9, 1.2, 0);
+        player.leftArm.castShadow = true;
+        player.add(player.leftArm);
+
+        player.rightArm = new THREE.Mesh(armGeo, suitMat);
+        player.rightArm.position.set(0.9, 1.2, 0);
+        player.rightArm.castShadow = true;
+        player.add(player.rightArm);
+
+        const legGeo = new THREE.BoxGeometry(0.5, 1.0, 0.5);
+        player.leftLeg = new THREE.Mesh(legGeo, darkMat);
+        player.leftLeg.position.set(-0.35, 0.5, 0);
+        player.leftLeg.castShadow = true;
+        player.add(player.leftLeg);
+
+        player.rightLeg = new THREE.Mesh(legGeo, darkMat);
+        player.rightLeg.position.set(0.35, 0.5, 0);
+        player.rightLeg.castShadow = true;
+        player.add(player.rightLeg);
+
+        player.position.set(0, 0, 0);
+        scene.add(player);
+
+        createNameTag();
+      }
+
+      function createNameTag() {
+        const container = document.getElementById("nametag-container");
+        if (nameTagElement) nameTagElement.remove();
+
+        nameTagElement = document.createElement("div");
+        nameTagElement.className =
+          "absolute transform -translate-x-1/2 -translate-y-full glass-panel px-3 py-1 rounded-full text-center border border-amber-400/50 shadow-lg pointer-events-none transition-opacity duration-200";
+        nameTagElement.innerHTML = `
+                <div class="text-xs font-bold text-amber-300 tracking-wide" id="tag-name">AGENT</div>
+                <div class="text-[9px] font-extrabold text-cyan-400 leading-none">ZERO AGENT</div>
+            `;
+        container.appendChild(nameTagElement);
+      }
+
+      function updateNameTagPosition() {
+        if (!player || !nameTagElement) return;
+
+        const tempV = new THREE.Vector3();
+        player.getWorldPosition(tempV);
+        tempV.y += 3.4;
+
+        tempV.project(camera);
+
+        const x = (tempV.x * 0.5 + 0.5) * window.innerWidth;
+        const y = (tempV.y * -0.5 + 0.5) * window.innerHeight;
+
+        nameTagElement.style.transform = `translate(-50%, -100%) translate(${x}px,${y}px)`;
+        nameTagElement.style.opacity = tempV.z < 1 ? "1" : "0";
+      }
+
+      /* ==========================================================================
+           7. ENEMIES WITH OBSTACLE COLLISION & LIVES SYSTEM
+           ========================================================================== */
+      function spawnEnemies() {
+        enemies.forEach((e) => scene.remove(e.mesh));
+        enemies = [];
+
+        const count = 4;
+        const size = CONFIG.WORLD_SIZE;
+
+        for (let i = 0; i < count; i++) {
+          const group = new THREE.Group();
+
+          const bodyMat = new THREE.MeshStandardMaterial({
+            color: 0x090d16,
+            roughness: 0.3,
+          });
+          const body = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), bodyMat);
+          body.position.y = 1;
+          body.castShadow = true;
+          group.add(body);
+
+          const eyeMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+          const eyeL = new THREE.Mesh(
+            new THREE.BoxGeometry(0.4, 0.25, 0.2),
+            eyeMat,
+          );
+          eyeL.position.set(-0.45, 1.2, 1.01);
+          group.add(eyeL);
+
+          const eyeR = new THREE.Mesh(
+            new THREE.BoxGeometry(0.4, 0.25, 0.2),
+            eyeMat,
+          );
+          eyeR.position.set(0.45, 1.2, 1.01);
+          group.add(eyeR);
+
+          let rx, rz;
+          do {
+            rx = (Math.random() - 0.5) * (size - 20);
+            rz = (Math.random() - 0.5) * (size - 20);
+          } while (Math.hypot(rx, rz) < 20);
+
+          group.position.set(rx, 0, rz);
+          scene.add(group);
+
+          enemies.push({
+            mesh: group,
+            speed: CONFIG.ENEMY_SPEED,
+          });
+        }
+      }
+
+      function checkObstacleCollision(newPos, radius = 0.8) {
+        const playerBox = new THREE.Box3();
+        playerBox.setFromCenterAndSize(
+          new THREE.Vector3(newPos.x, 1, newPos.z),
+          new THREE.Vector3(radius * 2, 2, radius * 2),
+        );
+
+        for (let obs of obstacles) {
+          if (playerBox.intersectsBox(obs)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function updateEnemies() {
+        if (state.isPaused || !player) return;
+
+        const playerPos = player.position;
+
+        enemies.forEach((enemy) => {
+          const dist = enemy.mesh.position.distanceTo(playerPos);
+
+          if (dist < CONFIG.ENEMY_DETECT_DIST) {
+            const dir = new THREE.Vector3().subVectors(
+              playerPos,
+              enemy.mesh.position,
+            );
+            dir.y = 0;
+            dir.normalize();
+
+            // Try moving X and Z with collision check
+            const nextX = enemy.mesh.position.x + dir.x * enemy.speed;
+            const nextZ = enemy.mesh.position.z + dir.z * enemy.speed;
+
+            if (
+              !checkObstacleCollision(
+                { x: nextX, z: enemy.mesh.position.z },
+                1.0,
+              )
+            ) {
+              enemy.mesh.position.x = nextX;
+            }
+            if (
+              !checkObstacleCollision(
+                { x: enemy.mesh.position.x, z: nextZ },
+                1.0,
+              )
+            ) {
+              enemy.mesh.position.z = nextZ;
+            }
+
+            enemy.mesh.lookAt(playerPos.x, enemy.mesh.position.y, playerPos.z);
+          }
+
+          // Player Collision & Lives Deduction
+          if (dist < 1.6 && !state.isInvulnerable) {
+            takeDamage();
+          }
+        });
+      }
+
+      function takeDamage() {
+        state.lives--;
+        updateHUD();
+        audio.playHit();
+        showFloatingText("-1 LIFE ❤️", player.position, "text-red-500");
+
+        if (state.lives <= 0) {
+          triggerGameOver();
+        } else {
+          // Temporary Invulnerability & Flashing Effect
+          state.isInvulnerable = true;
+          let flashCount = 0;
+          const interval = setInterval(() => {
+            player.visible = !player.visible;
+            flashCount++;
+            if (flashCount >= 8) {
+              clearInterval(interval);
+              player.visible = true;
+              state.isInvulnerable = false;
+            }
+          }, 150);
+        }
+      }
+
+      /* ==========================================================================
+           8. COLLECTIBLES
+           ========================================================================== */
+      function spawnCollectibles() {
+        scoreBoxes.forEach((b) => scene.remove(b));
+        questionBoxes.forEach((b) => scene.remove(b));
+        scoreBoxes = [];
+        questionBoxes = [];
+
+        const size = CONFIG.WORLD_SIZE;
+
+        const scoreMat = new THREE.MeshStandardMaterial({
+          color: 0xf97316,
+          roughness: 0.2,
+          metalness: 0.5,
+        });
+        for (let i = 0; i < 10; i++) {
+          const mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(1.2, 1.2, 1.2),
+            scoreMat,
+          );
+          mesh.castShadow = true;
+
+          const rx = (Math.random() - 0.5) * (size - 20);
+          const rz = (Math.random() - 0.5) * (size - 20);
+          mesh.position.set(rx, 1.2, rz);
+
+          scene.add(mesh);
+          scoreBoxes.push(mesh);
+        }
+
+        const qMat = new THREE.MeshStandardMaterial({
+          color: 0xeab308,
+          roughness: 0.1,
+          metalness: 0.8,
+        });
+        for (let i = 0; i < 7; i++) {
+          const group = new THREE.Group();
+
+          const box = new THREE.Mesh(
+            new THREE.BoxGeometry(1.8, 1.8, 1.8),
+            qMat,
+          );
+          box.position.y = 1.5;
+          box.castShadow = true;
+          group.add(box);
+
+          const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+          const core = new THREE.Mesh(
+            new THREE.BoxGeometry(0.6, 0.6, 0.6),
+            coreMat,
+          );
+          core.position.y = 1.5;
+          group.add(core);
+
+          const rx = (Math.random() - 0.5) * (size - 24);
+          const rz = (Math.random() - 0.5) * (size - 24);
+          group.position.set(rx, 0, rz);
+
+          scene.add(group);
+          questionBoxes.push(group);
+        }
+      }
+
+      function updateCollectibles(delta) {
+        if (state.isPaused || !player) return;
+
+        const playerPos = player.position;
+
+        for (let i = scoreBoxes.length - 1; i >= 0; i--) {
+          const box = scoreBoxes[i];
+          box.rotation.y += delta * 2;
+          box.position.y = 1.2 + Math.sin(clock.getElapsedTime() * 3 + i) * 0.2;
+
+          if (box.position.distanceTo(playerPos) < 1.8) {
+            state.score += 10;
+            updateHUD();
+            audio.playScore();
+            showFloatingText("+10 SCORE", playerPos, "text-yellow-300");
+
+            scene.remove(box);
+            scoreBoxes.splice(i, 1);
+          }
+        }
+
+        for (let i = questionBoxes.length - 1; i >= 0; i--) {
+          const qBox = questionBoxes[i];
+          qBox.rotation.y += delta * 1.5;
+          qBox.children[0].position.y =
+            1.5 + Math.sin(clock.getElapsedTime() * 2.5 + i) * 0.25;
+
+          if (qBox.position.distanceTo(playerPos) < 2.2) {
+            scene.remove(qBox);
+            questionBoxes.splice(i, 1);
+            triggerQuestionModal();
+            break;
+          }
+        }
+      }
+
+      function showFloatingText(text, pos, colorClass = "text-yellow-300") {
+        const tempV = pos.clone();
+        tempV.y += 2.5;
+        tempV.project(camera);
+
+        const x = (tempV.x * 0.5 + 0.5) * window.innerWidth;
+        const y = (tempV.y * -0.5 + 0.5) * window.innerHeight;
+
+        const el = document.createElement("div");
+        el.className = `float-text text-xl font-bold ${colorClass}`;
+        el.innerText = text;
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 1000);
+      }
+
+      /* ==========================================================================
+           9. CONTROLS & PLAYER MOVEMENT WITH WALL SLIDING
+           ========================================================================== */
+      function initControls() {
+        window.addEventListener("keydown", (e) => {
+          audio.init();
+          const k = e.key.toLowerCase();
+          if (k === "w" || k === "arrowup") keys.w = true;
+          if (k === "s" || k === "arrowdown") keys.s = true;
+          if (k === "a" || k === "arrowleft") keys.a = true;
+          if (k === "d" || k === "arrowright") keys.d = true;
+        });
+
+        window.addEventListener("keyup", (e) => {
+          const k = e.key.toLowerCase();
+          if (k === "w" || k === "arrowup") keys.w = false;
+          if (k === "s" || k === "arrowdown") keys.s = false;
+          if (k === "a" || k === "arrowleft") keys.a = false;
+          if (k === "d" || k === "arrowright") keys.d = false;
+        });
+
+        const joystickZone = document.getElementById("joystick-zone");
+        const joystickKnob = document.getElementById("joystick-knob");
+
+        const handleTouchMove = (e) => {
+          audio.init();
+          if (!touchStartPos) return;
+          const touch = e.touches[0];
+          const dx = touch.clientX - touchStartPos.x;
+          const dy = touch.clientY - touchStartPos.y;
+          const dist = Math.hypot(dx, dy);
+          const maxRadius = 45;
+
+          const angle = Math.atan2(dy, dx);
+          const cappedDist = Math.min(dist, maxRadius);
+
+          const kx = Math.cos(angle) * cappedDist;
+          const ky = Math.sin(angle) * cappedDist;
+
+          joystickKnob.style.transform = `translate(${kx}px, ${ky}px)`;
+
+          joystickVector.x = kx / maxRadius;
+          joystickVector.y = ky / maxRadius;
+        };
+
+        joystickZone.addEventListener("touchstart", (e) => {
+          const rect = joystickZone.getBoundingClientRect();
+          touchStartPos = {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          };
+          handleTouchMove(e);
+        });
+
+        joystickZone.addEventListener("touchmove", handleTouchMove);
+
+        const resetJoystick = () => {
+          touchStartPos = null;
+          joystickVector = { x: 0, y: 0 };
+          joystickKnob.style.transform = `translate(0px, 0px)`;
+        };
+
+        joystickZone.addEventListener("touchend", resetJoystick);
+        joystickZone.addEventListener("touchcancel", resetJoystick);
+      }
+
+      function updatePlayerMovement(delta) {
+        if (state.isPaused || !player) return;
+
+        let moveX = 0;
+        let moveZ = 0;
+
+        if (keys.w) moveZ -= 1;
+        if (keys.s) moveZ += 1;
+        if (keys.a) moveX -= 1;
+        if (keys.d) moveX += 1;
+
+        if (
+          Math.abs(joystickVector.x) > 0.1 ||
+          Math.abs(joystickVector.y) > 0.1
+        ) {
+          moveX = joystickVector.x;
+          moveZ = joystickVector.y;
+        }
+
+        const isMoving = Math.abs(moveX) > 0.1 || Math.abs(moveZ) > 0.1;
+
+        if (isMoving) {
+          const length = Math.hypot(moveX, moveZ);
+          const dirX = (moveX / length) * CONFIG.PLAYER_SPEED;
+          const dirZ = (moveZ / length) * CONFIG.PLAYER_SPEED;
+
+          // Wall Sliding Movement Logic (Check X and Z independently)
+          const targetX = player.position.x + dirX;
+          const targetZ = player.position.z + dirZ;
+
+          if (
+            !checkObstacleCollision({ x: targetX, z: player.position.z }, 0.8)
+          ) {
+            player.position.x = targetX;
+          }
+          if (
+            !checkObstacleCollision({ x: player.position.x, z: targetZ }, 0.8)
+          ) {
+            player.position.z = targetZ;
+          }
+
+          const targetAngle = Math.atan2(moveX, moveZ);
+          player.rotation.y = THREE.MathUtils.lerp(
+            player.rotation.y,
+            targetAngle,
+            0.2,
+          );
+
+          const time = clock.getElapsedTime() * 12;
+          player.leftArm.rotation.x = Math.sin(time) * 0.6;
+          player.rightArm.rotation.x = -Math.sin(time) * 0.6;
+          player.leftLeg.rotation.x = -Math.sin(time) * 0.6;
+          player.rightLeg.rotation.x = Math.sin(time) * 0.6;
+        } else {
+          player.leftArm.rotation.x = THREE.MathUtils.lerp(
+            player.leftArm.rotation.x,
+            0,
+            0.2,
+          );
+          player.rightArm.rotation.x = THREE.MathUtils.lerp(
+            player.rightArm.rotation.x,
+            0,
+            0.2,
+          );
+          player.leftLeg.rotation.x = THREE.MathUtils.lerp(
+            player.leftLeg.rotation.x,
+            0,
+            0.2,
+          );
+          player.rightLeg.rotation.x = THREE.MathUtils.lerp(
+            player.rightLeg.rotation.x,
+            0,
+            0.2,
+          );
+        }
+
+        // Smooth Third-Person Camera Follow
+        const camTargetX = player.position.x;
+        const camTargetY = player.position.y + 12;
+        const camTargetZ = player.position.z + 16;
+
+        camera.position.x = THREE.MathUtils.lerp(
+          camera.position.x,
+          camTargetX,
+          0.08,
+        );
+        camera.position.y = THREE.MathUtils.lerp(
+          camera.position.y,
+          camTargetY,
+          0.08,
+        );
+        camera.position.z = THREE.MathUtils.lerp(
+          camera.position.z,
+          camTargetZ,
+          0.08,
+        );
+
+        camera.lookAt(
+          player.position.x,
+          player.position.y + 1.5,
+          player.position.z,
+        );
+      }
+
+      /* ==========================================================================
+           10. QUESTION SYSTEM (WIN CONDITION: ANSWER ALL 5 QUESTIONS = PASS)
+           ========================================================================== */
+      function prepareQuestions() {
+        const shuffled = [...QUESTION_BANK].sort(() => 0.5 - Math.random());
+        state.activeQuestions = shuffled.slice(
+          0,
+          CONFIG.TOTAL_QUESTIONS_PER_GAME,
+        );
+        state.currentQuestionIndex = 0;
+        state.answeredQuestions = 0;
+      }
+
+      function triggerQuestionModal() {
+        state.isPaused = true;
+        audio.playQuestion();
+
+        const modal = document.getElementById("modal-question");
+        const qData = state.activeQuestions[state.currentQuestionIndex];
+
+        document.getElementById("question-progress").innerText =
+          `QUESTION 0${state.answeredQuestions + 1} / 0${CONFIG.TOTAL_QUESTIONS_PER_GAME}`;
+        document.getElementById("question-text").innerText = qData.q;
+
+        const optionsContainer = document.getElementById("options-container");
+        const feedbackBox = document.getElementById("question-feedback");
+
+        optionsContainer.innerHTML = "";
+        feedbackBox.className = "hidden";
+
+        qData.options.forEach((optText, index) => {
+          const btn = document.createElement("button");
+          btn.className =
+            "w-full text-left p-3 rounded-xl border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-xs sm:text-sm font-semibold transition active:scale-[0.98] flex items-center justify-between text-slate-100";
+          btn.innerHTML = `<span>${optText}</span>`;
+          btn.onclick = () => handleAnswerSelect(index, qData);
+          optionsContainer.appendChild(btn);
+        });
+
+        modal.classList.remove("hidden");
+      }
+
+      function handleAnswerSelect(selectedIndex, qData) {
+        const optionsContainer = document.getElementById("options-container");
+        const buttons = optionsContainer.getElementsByTagName("button");
+
+        for (let btn of buttons) {
+          btn.disabled = true;
+          btn.classList.add("opacity-60", "cursor-not-allowed");
+        }
+
+        const isCorrect = selectedIndex === qData.ans;
+        const feedbackBox = document.getElementById("question-feedback");
+        const feedbackTitle = document.getElementById("feedback-title");
+        const feedbackExp = document.getElementById("feedback-explanation");
+
+        if (isCorrect) {
+          buttons[selectedIndex].className =
+            "w-full text-left p-3 rounded-xl border border-emerald-500 bg-emerald-500/20 text-emerald-300 font-bold text-xs sm:text-sm";
+          feedbackBox.className =
+            "p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs sm:text-sm font-medium";
+          feedbackTitle.className =
+            "font-bold text-sm sm:text-base text-emerald-400 mb-1";
+          feedbackTitle.innerText = "✅ CORRECT! (+50 SCORE / +1 STAR)";
+
+          state.score += 50;
+          state.stars += 1;
+          audio.playCorrect();
+        } else {
+          buttons[selectedIndex].className =
+            "w-full text-left p-3 rounded-xl border border-red-500 bg-red-500/20 text-red-300 font-bold text-xs sm:text-sm";
+          buttons[qData.ans].className =
+            "w-full text-left p-3 rounded-xl border border-emerald-500 bg-emerald-500/20 text-emerald-300 font-bold text-xs sm:text-sm";
+
+          feedbackBox.className =
+            "p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs sm:text-sm font-medium";
+          feedbackTitle.className =
+            "font-bold text-sm sm:text-base text-red-400 mb-1";
+          feedbackTitle.innerText = "❌ ยังไม่ถูกต้อง!";
+          audio.playWrong();
+        }
+
+        state.answeredQuestions += 1;
+        feedbackExp.innerText = qData.exp;
+        feedbackBox.classList.remove("hidden");
+
+        updateHUD();
+
+        // Auto Close & Check Win Condition
+        setTimeout(() => {
+          document.getElementById("modal-question").classList.add("hidden");
+          state.currentQuestionIndex++;
+
+          // IMPORTANT: ตอบคำถามครบ 5 ข้อ ถือว่าผ่านภารกิจทันที!
+          if (state.answeredQuestions >= CONFIG.TOTAL_QUESTIONS_PER_GAME) {
+            triggerMissionComplete();
+          } else {
+            state.isPaused = false;
+          }
+        }, 2500);
+      }
+
+      /* ==========================================================================
+           11. GAME FLOW CONTROL
+           ========================================================================== */
+      function startMission() {
+        audio.init();
+
+        const nameInput = document
+          .getElementById("input-player-name")
+          .value.trim();
+        state.playerName = nameInput || "AGENT 007";
+
+        document.getElementById("hud-player-name").innerText = state.playerName;
+        document.getElementById("tag-name").innerText = state.playerName;
+
+        state.score = 0;
+        state.stars = 0;
+        state.lives = CONFIG.MAX_LIVES;
+        state.timer = CONFIG.GAME_TIME;
+        state.isPlaying = true;
+        state.isPaused = false;
+        state.isInvulnerable = false;
+
+        prepareQuestions();
+        updateHUD();
+
+        if (player) player.position.set(0, 0, 0);
+        spawnEnemies();
+        spawnCollectibles();
+
+        // Hide Modals
+        document.getElementById("screen-start").classList.add("hidden");
+        document.getElementById("modal-complete").classList.add("hidden");
+        document.getElementById("modal-failed").classList.add("hidden");
+        document.getElementById("modal-pause").classList.add("hidden");
+
+        // Show HUD
+        document.getElementById("hud").classList.remove("hidden");
+        document.getElementById("hud").classList.add("flex");
+        document.getElementById("joystick-zone").classList.remove("hidden");
+
+        audio.playStart();
+
+        if (timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+          if (!state.isPaused && state.isPlaying) {
+            state.timer--;
+            updateTimerUI();
+
+            if (state.timer <= 0) {
+              triggerTimeOut();
+            }
+          }
+        }, 1000);
+      }
+
+      function updateHUD() {
+        document.getElementById("hud-score").innerText = state.score;
+        document.getElementById("hud-progress").innerText =
+          `${state.answeredQuestions}/5`;
+
+        let heartsStr = "";
+        for (let i = 0; i < state.lives; i++) heartsStr += "❤️";
+        document.getElementById("hud-lives").innerText = heartsStr || "💀";
+      }
+
+      function updateTimerUI() {
+        const m = Math.floor(state.timer / 60)
+          .toString()
+          .padStart(2, "0");
+        const s = (state.timer % 60).toString().padStart(2, "0");
+        document.getElementById("hud-timer").innerText = `${m}:${s}`;
+      }
+
+      function triggerMissionComplete() {
+        state.isPaused = true;
+        state.isPlaying = false;
+        clearInterval(timerInterval);
+
+        audio.playWin();
+
+        document.getElementById("complete-name").innerText = state.playerName;
+        document.getElementById("complete-score").innerText = state.score;
+        document.getElementById("complete-stars").innerText =
+          `${state.stars} / 5 ⭐`;
+
+        let rank = "ROOKIE AGENT";
+        if (state.score >= 250) rank = "ZERO BRIBE MASTER";
+        else if (state.score >= 180) rank = "INTEGRITY AGENT";
+        else if (state.score >= 120) rank = "SMART DECISION MAKER";
+
+        document.getElementById("complete-rank").innerText = rank;
+        document.getElementById("modal-complete").classList.remove("hidden");
+      }
+
+      function triggerGameOver() {
+        state.isPaused = true;
+        state.isPlaying = false;
+        clearInterval(timerInterval);
+
+        audio.playGameOver();
+
+        document.getElementById("failed-icon").innerText = "🚨";
+        document.getElementById("failed-title").innerText =
+          "CORRUPTION DETECTED";
+        document.getElementById("failed-subtitle").innerText =
+          "หัวใจหมด! คุณถูกจับโดยคอร์รัปชัน";
+        document.getElementById("failed-score").innerText = state.score;
+        document.getElementById("failed-questions").innerText =
+          `${state.answeredQuestions} / 5 ข้อ`;
+
+        document.getElementById("modal-failed").classList.remove("hidden");
+      }
+
+      function triggerTimeOut() {
+        state.isPaused = true;
+        state.isPlaying = false;
+        clearInterval(timerInterval);
+
+        audio.playGameOver();
+
+        document.getElementById("failed-icon").innerText = "⏱️";
+        document.getElementById("failed-title").innerText = "MISSION TIME OUT";
+        document.getElementById("failed-subtitle").innerText =
+          "หมดเวลาการทำภารกิจ!";
+        document.getElementById("failed-score").innerText = state.score;
+        document.getElementById("failed-questions").innerText =
+          `${state.answeredQuestions} / 5 ข้อ`;
+
+        document.getElementById("modal-failed").classList.remove("hidden");
+      }
+
+      function resetToStartScreen() {
+        state.isPaused = true;
+        state.isPlaying = false;
+        clearInterval(timerInterval);
+
+        document.getElementById("modal-complete").classList.add("hidden");
+        document.getElementById("modal-failed").classList.add("hidden");
+        document.getElementById("modal-pause").classList.add("hidden");
+        document.getElementById("hud").classList.add("hidden");
+        document.getElementById("joystick-zone").classList.add("hidden");
+        document.getElementById("screen-start").classList.remove("hidden");
+      }
+
+      /* ==========================================================================
+           12. ANIMATION LOOP & EVENT LISTENERS
+           ========================================================================== */
+      function animate() {
+        requestAnimationFrame(animate);
+
+        const delta = clock.getDelta();
+
+        if (state.isPlaying && !state.isPaused) {
+          updatePlayerMovement(delta);
+          updateEnemies();
+          updateCollectibles(delta);
+        }
+
+        updateNameTagPosition();
+        renderer.render(scene, camera);
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      window.onload = () => {
+        initThree();
+        createPlayer();
+        initControls();
+
+        document.getElementById("btn-start-mission").onclick = startMission;
+
+        document.getElementById("btn-how-to-play").onclick = () => {
+          document.getElementById("modal-how-to").classList.remove("hidden");
+        };
+
+        document.getElementById("btn-close-how-to").onclick = () => {
+          document.getElementById("modal-how-to").classList.add("hidden");
+        };
+
+        document.getElementById("btn-sound").onclick = () => {
+          audio.enabled = !audio.enabled;
+          document.getElementById("sound-icon").innerText = audio.enabled
+            ? "🔊"
+            : "🔇";
+        };
+
+        document.getElementById("btn-home").onclick = () => {
+          state.isPaused = true;
+          document.getElementById("modal-pause").classList.remove("hidden");
+        };
+
+        document.getElementById("btn-resume").onclick = () => {
+          document.getElementById("modal-pause").classList.add("hidden");
+          state.isPaused = false;
+        };
+
+        document.getElementById("btn-confirm-quit").onclick =
+          resetToStartScreen;
+        document.getElementById("btn-restart-win").onclick = startMission;
+        document.getElementById("btn-restart-fail").onclick = startMission;
+        document.getElementById("btn-home-fail").onclick = resetToStartScreen;
+
+        animate();
+      };
+    </script>
+  </body>
+</html>
