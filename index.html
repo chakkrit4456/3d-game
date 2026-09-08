@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>MISSION: ZERO BRIBE - เกมนักสืบพิชิตสินบน</title>
     <!-- Tailwind CSS CDN -->
@@ -44,21 +44,47 @@
         touch-action: manipulation;
       }
 
+      html,
+      body {
+        overscroll-behavior: none;
+      }
+
       body {
         margin: 0;
         padding: 0;
         overflow: hidden;
         background: radial-gradient(circle at 50% 28%, #3a2a1a, #0b0705 70%);
         color: #f3e6c8;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
       }
 
       #canvas-container {
         width: 100vw;
         height: 100vh;
+        height: 100dvh;
         position: absolute;
         top: 0;
         left: 0;
         z-index: 1;
+      }
+
+      /* Drag-to-look must not trigger the browser's own scroll/zoom gestures. */
+      #canvas-container canvas {
+        touch-action: none;
+        display: block;
+      }
+
+      #joystick-zone {
+        bottom: max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem));
+        left: max(1.5rem, calc(env(safe-area-inset-left) + 1rem));
+      }
+
+      /* Bottom-right stays clear of the HUD (top) and joystick (bottom-left). */
+      #btn-fullscreen {
+        bottom: max(0.75rem, env(safe-area-inset-bottom));
+        right: max(0.75rem, env(safe-area-inset-right));
       }
 
       h1,
@@ -464,7 +490,7 @@
       <!-- Virtual Joystick Area (Mobile) -->
       <div
         id="joystick-zone"
-        class="sm:hidden absolute bottom-6 left-6 w-32 h-32 rounded-full border-2 border-white/20 bg-white/5 backdrop-blur-sm pointer-events-auto flex items-center justify-center touch-none hidden"
+        class="absolute bottom-6 left-6 w-28 h-28 sm:w-32 sm:h-32 rounded-full border-2 border-white/20 bg-white/5 backdrop-blur-sm pointer-events-auto flex items-center justify-center touch-none hidden"
       >
         <div
           id="joystick-knob"
@@ -472,6 +498,15 @@
         ></div>
       </div>
     </div>
+
+    <!-- Fullscreen toggle: fixed above every screen/modal, always reachable -->
+    <button
+      id="btn-fullscreen"
+      class="fixed z-[60] w-10 h-10 rounded-full glass-panel flex items-center justify-center text-lg pointer-events-auto"
+      aria-label="สลับโหมดเต็มจอ"
+    >
+      ⛶
+    </button>
 
     <!-- MODAL CONTAINERS -->
 
@@ -554,7 +589,8 @@
             🏃
             <span
               ><b>การเคลื่อนที่:</b> ปุ่ม WASD / ลูกศร หรือ
-              ลากจอยสติ๊กบนมือถือ</span
+              ลากจอยสติ๊กบนมือถือ (กด <b>Shift</b> ค้างไว้ หรือลากจอยสติ๊กสุดขอบ
+              เพื่อวิ่ง)</span
             >
           </p>
           <p class="flex items-start gap-2">
@@ -589,6 +625,13 @@
             <span
               ><b>ยาฮีล (โพชั่นแดง):</b> เดินชนเพื่อฟื้นเลือด +1 ❤️ (เลือดเต็ม =
               +20 SCORE)</span
+            >
+          </p>
+          <p class="flex items-start gap-2">
+            📦
+            <span
+              ><b>กล่องสมบัติ:</b> เก็บเพื่อรับไอเทมช่วยเล่นแบบสุ่ม — ฮีลเต็ม
+              พลัง, เพิ่มความเร็ว, โล่กันดาเมจชั่วคราว หรือคะแนนโบนัส</span
             >
           </p>
           <p class="flex items-start gap-2">
@@ -823,6 +866,7 @@
         GAME_TIME: 180,
         WORLD_SIZE: 300,
         PLAYER_SPEED: 0.11,
+        PLAYER_RUN_MULTIPLIER: 1.8, // hold Shift to sprint
         ENEMY_SPEED: 0.065,
         ENEMY_DETECT_DIST: 18,
         TOTAL_QUESTIONS_PER_GAME: 5,
@@ -850,6 +894,12 @@
         POTION_COUNT: 3, // health potions per mission
         POTION_HEAL: 1, // hearts restored per potion
         POTION_SCORE_IF_FULL: 20, // bonus when picked up at full health
+        CHEST_COUNT: 4, // treasure chests per mission
+        CHEST_SPEED_TIME: 8, // seconds the speed-boost power-up lasts
+        CHEST_SPEED_MULTIPLIER: 1.6, // stacks with the Shift sprint
+        CHEST_SHIELD_TIME: 6, // seconds the shield power-up lasts
+        CHEST_SCORE_BONUS: 40, // score power-up amount
+        CHEST_HEAL_SCORE_BONUS: 30, // score given if heal chest opened at full health
       };
 
       const QUESTION_BANK = [
@@ -1136,6 +1186,14 @@
         isInvulnerable: false,
       };
 
+      // Temporary power-up state granted by treasure chests.
+      let speedBoostTimer = 0;
+      let speedBoostMultiplier = 1;
+      let shieldTimer = 0;
+      function isShielded() {
+        return state.isInvulnerable || shieldTimer > 0;
+      }
+
       let scene, camera, renderer;
       let player, nameTagElement;
       let enemies = []; // active forest monsters
@@ -1148,6 +1206,8 @@
       let rocks = []; // in-flight rock projectiles
       let potionTemplate = null; // Potion_1.fbx health potion
       let potions = []; // health potions in the world
+      let chestTemplate = null; // Prop_Treasure_Chest.obj, cloned per chest pickup
+      let chests = []; // treasure chests in the world (grant a random power-up)
       let rockThrowTimer = 0;
       let pendingRock = null; // { monster, delay } during the roar telegraph
       let cameraShake = 0;
@@ -1158,7 +1218,7 @@
       let timerInterval = null;
 
       // Input Tracking
-      const keys = { w: false, a: false, s: false, d: false };
+      const keys = { w: false, a: false, s: false, d: false, shift: false };
       let joystickVector = { x: 0, y: 0 };
       let touchStartPos = null;
       const cameraControl = {
@@ -1168,8 +1228,14 @@
         locked: false, // true while the mouse is pointer-locked for free look
       };
 
+      // Phones/tablets get on-screen touch controls (joystick + drag-to-look)
+      // instead of mouse pointer-lock, regardless of the viewport's pixel size.
+      const isTouchDevice =
+        "ontouchstart" in window || navigator.maxTouchPoints > 0;
+
       // Capture / release the mouse for free-look camera control.
       function lockCamera() {
+        if (isTouchDevice) return; // touch devices drag directly on the canvas to look
         const el = renderer && renderer.domElement;
         if (el && el.requestPointerLock) {
           try {
@@ -1236,10 +1302,17 @@
           loadPlantsModel();
           loadRockModel();
           loadPotionModel();
+          loadChestModel();
         } catch (error) {
           console.error("Could not initialise model loaders", error);
         }
         window.addEventListener("resize", onWindowResize);
+        window.addEventListener("orientationchange", onWindowResize);
+        // Mobile browsers resize the visual viewport (address bar show/hide,
+        // on-screen keyboard) without always firing a plain "resize" event.
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener("resize", onWindowResize);
+        }
       }
 
       /* ==========================================================================
@@ -1603,9 +1676,11 @@
               player.mixer.clipAction(clips[0]),
             walk:
               pick(/walk\b.*\.l$|walk\.male\.l/i) ||
-              pick(/walk|run|jog|move/i),
+              pick(/walk|jog|move/i),
+            run: pick(/^run\b|run\.male|sprint/i),
           };
           if (player.actions.walk) player.actions.walk.timeScale = 0.78;
+          if (player.actions.run) player.actions.run.timeScale = 1;
           player.actions.idle.play();
           player.activeAction = "idle";
           console.log(
@@ -1649,31 +1724,55 @@
         if (!next) return;
         const prev = player.actions[player.activeAction];
         next.reset().play();
-        if (prev && prev !== next) prev.crossFadeTo(next, 0.2, false);
+        if (prev && prev !== next) prev.crossFadeTo(next, 0.25, false);
         player.activeAction = name;
       }
 
+      // Frame-rate independent smoothing factor for THREE.MathUtils.lerp /
+      // lerpAngle — using a fixed factor per frame (e.g. 0.2) makes motion
+      // converge at different rates depending on the device's FPS.
+      function smoothFactor(delta, speed) {
+        return 1 - Math.exp(-speed * delta);
+      }
+
       // Drives whichever animation system the loaded model supports.
-      function animatePlayer(moving, delta = 0.016) {
+      function animatePlayer(moving, running, delta = 0.016) {
         if (player.mixer) {
           player.mixer.update(delta);
-          playPlayerAction(moving ? "walk" : "idle");
+          if (moving) {
+            const useRunClip = running && player.actions.run;
+            playPlayerAction(useRunClip ? "run" : "walk");
+            if (!useRunClip && player.actions.walk) {
+              // No dedicated run clip: speed the walk cycle up so feet don't
+              // slide relative to the faster sprint movement speed.
+              const targetScale = running ? 1.3 : 0.78;
+              player.actions.walk.timeScale = THREE.MathUtils.lerp(
+                player.actions.walk.timeScale,
+                targetScale,
+                smoothFactor(delta, 6),
+              );
+            }
+          } else {
+            playPlayerAction("idle");
+          }
           return;
         }
 
-        if (moving) player.walkPhase = (player.walkPhase || 0) + 0.22;
+        const phaseSpeed = running ? 20 : 13;
+        if (moving) player.walkPhase = (player.walkPhase || 0) + phaseSpeed * delta;
         const swing = Math.sin(player.walkPhase || 0);
         const amp = moving ? 1 : 0;
 
         if (player.bones) {
           const b = player.bones;
+          const f = smoothFactor(delta, 21);
           const ease = (bone, d) => {
             if (!bone) return;
             const rest = bone.userData.rest || 0;
             bone.rotation.x = THREE.MathUtils.lerp(
               bone.rotation.x,
               rest + d * amp,
-              0.3,
+              f,
             );
           };
           ease(b.thighL, swing * 0.7);
@@ -1684,25 +1783,26 @@
           ease(b.armR, swing * 0.5);
         } else if (player.leftArm) {
           const t = swing * 0.6 * amp;
+          const f = smoothFactor(delta, 17);
           player.leftArm.rotation.x = THREE.MathUtils.lerp(
             player.leftArm.rotation.x,
             t,
-            0.25,
+            f,
           );
           player.rightArm.rotation.x = THREE.MathUtils.lerp(
             player.rightArm.rotation.x,
             -t,
-            0.25,
+            f,
           );
           player.leftLeg.rotation.x = THREE.MathUtils.lerp(
             player.leftLeg.rotation.x,
             -t,
-            0.25,
+            f,
           );
           player.rightLeg.rotation.x = THREE.MathUtils.lerp(
             player.rightLeg.rotation.x,
             t,
-            0.25,
+            f,
           );
         }
       }
@@ -1726,7 +1826,9 @@
 
         const tempV = new THREE.Vector3();
         player.getWorldPosition(tempV);
-        tempV.y += 3.4;
+        // Float clear above the head (PLAYER_TARGET_HEIGHT) so it never
+        // overlaps the character's face.
+        tempV.y += PLAYER_TARGET_HEIGHT + 0.9;
 
         tempV.project(camera);
 
@@ -2100,7 +2202,7 @@
           r.life -= delta;
 
           const hit =
-            !state.isInvulnerable &&
+            !isShielded() &&
             Math.hypot(
               r.mesh.position.x - player.position.x,
               r.mesh.position.z - player.position.z,
@@ -2263,7 +2365,7 @@
               if (
                 !monster.hitThisLunge &&
                 dist < CONFIG.MONSTER_HIT_RANGE &&
-                !state.isInvulnerable
+                !isShielded()
               ) {
                 monster.hitThisLunge = true;
                 takeDamage();
@@ -2531,13 +2633,129 @@
         }
       }
 
+      /* TREASURE CHEST (Prop_Treasure_Chest.obj) — grants a random power-up -- */
+      function buildProceduralChest() {
+        const g = new THREE.Group();
+        const woodMat = new THREE.MeshStandardMaterial({
+          color: 0x6b4423,
+          roughness: 0.85,
+        });
+        const goldMat = new THREE.MeshStandardMaterial({
+          color: 0xc9a349,
+          roughness: 0.35,
+          metalness: 0.7,
+        });
+        const base = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1, 1.1), woodMat);
+        base.position.y = 0.5;
+        base.castShadow = true;
+        g.add(base);
+        const lid = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.55, 0.55, 1.6, 12, 1, false, 0, Math.PI),
+          woodMat,
+        );
+        lid.rotation.z = Math.PI / 2;
+        lid.position.y = 1;
+        lid.castShadow = true;
+        g.add(lid);
+        const band = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.18, 1.16), goldMat);
+        band.position.y = 0.5;
+        g.add(band);
+        const lock = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.3, 0.15), goldMat);
+        lock.position.set(0, 0.9, 0.58);
+        g.add(lock);
+        return g;
+      }
+
+      function loadChestModel() {
+        chestTemplate = buildProceduralChest(); // instant fallback
+        if (!THREE.OBJLoader) return;
+        const addFromObj = (materials = null) => {
+          const objLoader = new THREE.OBJLoader();
+          objLoader.setPath(BEACH_ASSET_PATH);
+          if (materials) objLoader.setMaterials(materials);
+          objLoader.load(
+            "Prop_Treasure_Chest.obj",
+            (object) => {
+              object.traverse((c) => {
+                if (c.isMesh) {
+                  c.castShadow = true;
+                  c.receiveShadow = true;
+                }
+              });
+              chestTemplate = object;
+            },
+            undefined,
+            () =>
+              console.warn(
+                "Prop_Treasure_Chest.obj failed — using procedural chest",
+              ),
+          );
+        };
+        if (!THREE.MTLLoader) {
+          addFromObj();
+          return;
+        }
+        const mtlLoader = new THREE.MTLLoader();
+        mtlLoader.setPath(BEACH_ASSET_PATH);
+        mtlLoader.load(
+          "Prop_Treasure_Chest.mtl",
+          (materials) => {
+            materials.preload();
+            addFromObj(materials);
+          },
+          undefined,
+          () => addFromObj(),
+        );
+      }
+
+      // Applies one random helpful effect when a treasure chest is opened.
+      function applyChestPowerUp(pos) {
+        const options = ["heal", "speed", "shield", "score"];
+        const pick = options[(Math.random() * options.length) | 0];
+
+        if (pick === "heal") {
+          if (state.lives < CONFIG.MAX_LIVES) {
+            state.lives = CONFIG.MAX_LIVES;
+            showFloatingText("❤️ FULL HEAL!", pos, "text-red-400");
+          } else {
+            state.score += CONFIG.CHEST_HEAL_SCORE_BONUS;
+            showFloatingText(
+              `+${CONFIG.CHEST_HEAL_SCORE_BONUS} SCORE`,
+              pos,
+              "text-yellow-300",
+            );
+          }
+          audio.playCorrect();
+        } else if (pick === "speed") {
+          speedBoostTimer = CONFIG.CHEST_SPEED_TIME;
+          speedBoostMultiplier = CONFIG.CHEST_SPEED_MULTIPLIER;
+          showFloatingText("⚡ SPEED BOOST!", pos, "text-cyan-300");
+          audio.playScore();
+        } else if (pick === "shield") {
+          shieldTimer = CONFIG.CHEST_SHIELD_TIME;
+          showFloatingText("🛡️ SHIELD ACTIVE!", pos, "text-cyan-300");
+          audio.playScore();
+        } else {
+          state.score += CONFIG.CHEST_SCORE_BONUS;
+          showFloatingText(
+            `+${CONFIG.CHEST_SCORE_BONUS} SCORE`,
+            pos,
+            "text-yellow-300",
+          );
+          audio.playScore();
+        }
+        updateHUD();
+      }
+
       function spawnCollectibles() {
         scoreBoxes.forEach((b) => scene.remove(b));
         questionBoxes.forEach((b) => scene.remove(b));
         potions.forEach((b) => scene.remove(b));
+        chests.forEach((b) => scene.remove(b));
         scoreBoxes = [];
         questionBoxes = [];
         potions = [];
+        chests = [];
 
         const size = CONFIG.WORLD_SIZE;
 
@@ -2624,6 +2842,22 @@
           scene.add(pot);
           potions.push(pot);
         }
+
+        if (!chestTemplate) chestTemplate = buildProceduralChest();
+        for (let i = 0; i < CONFIG.CHEST_COUNT; i++) {
+          const rx = (Math.random() - 0.5) * (size - 26);
+          const rz = (Math.random() - 0.5) * (size - 26);
+          const chest = chestTemplate.clone(true);
+          const bb = new THREE.Box3().setFromObject(chest);
+          const sc = 2.2 / (bb.max.y - bb.min.y || 1);
+          chest.scale.setScalar(sc);
+          const bb2 = new THREE.Box3().setFromObject(chest);
+          chest.userData.baseY = -bb2.min.y;
+          chest.rotation.y = Math.random() * Math.PI * 2;
+          chest.position.set(rx, chest.userData.baseY, rz);
+          scene.add(chest);
+          chests.push(chest);
+        }
       }
 
       function updateCollectibles(delta) {
@@ -2709,6 +2943,26 @@
             updateHUD();
           }
         }
+
+        for (let i = chests.length - 1; i >= 0; i--) {
+          const chest = chests[i];
+          chest.rotation.y +=
+            Math.sin(clock.getElapsedTime() * 2 + i) * delta * 0.4;
+          chest.position.y =
+            (chest.userData.baseY ?? 0) +
+            Math.max(0, Math.sin(clock.getElapsedTime() * 2.5 + i)) * 0.12;
+
+          if (
+            Math.hypot(
+              chest.position.x - playerPos.x,
+              chest.position.z - playerPos.z,
+            ) < 2.2
+          ) {
+            scene.remove(chest);
+            chests.splice(i, 1);
+            applyChestPowerUp(playerPos);
+          }
+        }
       }
 
       function showFloatingText(text, pos, colorClass = "text-yellow-300") {
@@ -2745,6 +2999,11 @@
         };
 
         window.addEventListener("keydown", (e) => {
+          if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+            if (state.isPlaying && !state.isPaused) keys.shift = true;
+            return;
+          }
+
           const movement = movementKeys[e.code];
           if (!movement || !state.isPlaying || state.isPaused) return;
 
@@ -2755,6 +3014,11 @@
         });
 
         window.addEventListener("keyup", (e) => {
+          if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+            keys.shift = false;
+            return;
+          }
+
           const movement = movementKeys[e.code];
           if (!movement) return;
           keys[movement] = false;
@@ -2763,7 +3027,7 @@
 
         // Prevent a held key from leaving the player moving after tabbing away.
         window.addEventListener("blur", () => {
-          keys.w = keys.a = keys.s = keys.d = false;
+          keys.w = keys.a = keys.s = keys.d = keys.shift = false;
         });
 
         // Free look: pointer-lock the mouse; movement rotates the camera directly.
@@ -2796,6 +3060,55 @@
             1.15,
           );
         });
+
+        // Touch devices have no pointer-lock mouse, so dragging a finger
+        // anywhere on the 3D view (the joystick has its own zone/listeners
+        // and never reaches these) rotates the camera instead.
+        let lookTouchId = null;
+        let lookLastPos = null;
+
+        gameCanvas.addEventListener(
+          "touchstart",
+          (e) => {
+            if (!state.isPlaying || state.isPaused || lookTouchId !== null)
+              return;
+            const t = e.changedTouches[0];
+            lookTouchId = t.identifier;
+            lookLastPos = { x: t.clientX, y: t.clientY };
+            audio.init();
+          },
+          { passive: true },
+        );
+
+        gameCanvas.addEventListener(
+          "touchmove",
+          (e) => {
+            for (const t of e.changedTouches) {
+              if (t.identifier !== lookTouchId) continue;
+              const dx = t.clientX - lookLastPos.x;
+              const dy = t.clientY - lookLastPos.y;
+              lookLastPos = { x: t.clientX, y: t.clientY };
+              cameraControl.yaw -= dx * 0.0045;
+              cameraControl.pitch = THREE.MathUtils.clamp(
+                cameraControl.pitch - dy * 0.0035,
+                0.2,
+                1.15,
+              );
+            }
+          },
+          { passive: true },
+        );
+
+        const endLookTouch = (e) => {
+          for (const t of e.changedTouches) {
+            if (t.identifier === lookTouchId) {
+              lookTouchId = null;
+              lookLastPos = null;
+            }
+          }
+        };
+        gameCanvas.addEventListener("touchend", endLookTouch);
+        gameCanvas.addEventListener("touchcancel", endLookTouch);
 
         const joystickZone = document.getElementById("joystick-zone");
         const joystickKnob = document.getElementById("joystick-knob");
@@ -2849,6 +3162,7 @@
         // after the player rotates the free camera.
         let inputForward = 0;
         let inputRight = 0;
+        let joystickMagnitude = 0;
 
         if (keys.w) inputForward += 1;
         if (keys.s) inputForward -= 1;
@@ -2861,6 +3175,7 @@
         ) {
           inputRight = joystickVector.x;
           inputForward = -joystickVector.y;
+          joystickMagnitude = Math.hypot(joystickVector.x, joystickVector.y);
         }
 
         const moveX =
@@ -2871,11 +3186,18 @@
           inputRight * Math.sin(cameraControl.yaw);
 
         const isMoving = Math.abs(moveX) > 0.1 || Math.abs(moveZ) > 0.1;
+        // Hold Shift on keyboard, or push the joystick all the way to its
+        // edge on mobile, to sprint.
+        const isRunning = isMoving && (keys.shift || joystickMagnitude > 0.9);
 
         if (isMoving) {
+          const speed =
+            CONFIG.PLAYER_SPEED *
+            (isRunning ? CONFIG.PLAYER_RUN_MULTIPLIER : 1) *
+            speedBoostMultiplier;
           const length = Math.hypot(moveX, moveZ);
-          const dirX = (moveX / length) * CONFIG.PLAYER_SPEED;
-          const dirZ = (moveZ / length) * CONFIG.PLAYER_SPEED;
+          const dirX = (moveX / length) * speed;
+          const dirZ = (moveZ / length) * speed;
 
           // Wall Sliding Movement Logic (Check X and Z independently)
           const targetX = player.position.x + dirX;
@@ -2893,15 +3215,15 @@
           }
 
           const targetAngle = Math.atan2(moveX, moveZ);
-          player.rotation.y = THREE.MathUtils.lerp(
+          player.rotation.y = lerpAngle(
             player.rotation.y,
             targetAngle,
-            0.2,
+            smoothFactor(delta, 14),
           );
 
-          animatePlayer(true, delta);
+          animatePlayer(true, isRunning, delta);
         } else {
-          animatePlayer(false, delta);
+          animatePlayer(false, isRunning, delta);
         }
 
         // Smooth third-person camera; yaw and pitch are controlled by right drag.
@@ -2916,20 +3238,21 @@
         const camTargetZ =
           player.position.z + Math.cos(cameraControl.yaw) * horizontalDistance;
 
+        const camF = smoothFactor(delta, 5);
         camera.position.x = THREE.MathUtils.lerp(
           camera.position.x,
           camTargetX,
-          0.08,
+          camF,
         );
         camera.position.y = THREE.MathUtils.lerp(
           camera.position.y,
           camTargetY,
-          0.08,
+          camF,
         );
         camera.position.z = THREE.MathUtils.lerp(
           camera.position.z,
           camTargetZ,
-          0.08,
+          camF,
         );
 
         camera.lookAt(
@@ -3074,6 +3397,9 @@
         state.isPlaying = true;
         state.isPaused = false;
         state.isInvulnerable = false;
+        speedBoostTimer = 0;
+        speedBoostMultiplier = 1;
+        shieldTimer = 0;
 
         prepareQuestions();
         updateHUD();
@@ -3091,7 +3417,9 @@
         // Show HUD
         document.getElementById("hud").classList.remove("hidden");
         document.getElementById("hud").classList.add("flex");
-        document.getElementById("joystick-zone").classList.remove("hidden");
+        if (isTouchDevice) {
+          document.getElementById("joystick-zone").classList.remove("hidden");
+        }
 
         audio.playStart();
         playBGM();
@@ -3216,6 +3544,18 @@
         const delta = clock.getDelta();
 
         if (state.isPlaying && !state.isPaused) {
+          if (speedBoostTimer > 0) {
+            speedBoostTimer -= delta;
+            if (speedBoostTimer <= 0) {
+              speedBoostTimer = 0;
+              speedBoostMultiplier = 1;
+            }
+          }
+          if (shieldTimer > 0) {
+            shieldTimer -= delta;
+            if (shieldTimer < 0) shieldTimer = 0;
+          }
+
           updatePlayerMovement(delta);
           updateEnemies(delta);
           updateCollectibles(delta);
@@ -3226,9 +3566,18 @@
       }
 
       function onWindowResize() {
-        camera.aspect = window.innerWidth / window.innerHeight;
+        // visualViewport reflects the real visible area on mobile (excludes
+        // the on-screen keyboard / collapsing address bar); innerWidth/Height
+        // can lag behind it.
+        const w = window.visualViewport
+          ? window.visualViewport.width
+          : window.innerWidth;
+        const h = window.visualViewport
+          ? window.visualViewport.height
+          : window.innerHeight;
+        camera.aspect = w / h;
         camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setSize(w, h);
       }
 
       window.onload = () => {
@@ -3245,6 +3594,40 @@
         document.getElementById("btn-close-how-to").onclick = () => {
           document.getElementById("modal-how-to").classList.add("hidden");
         };
+
+        // Fullscreen toggle -------------------------------------------------
+        const fsBtn = document.getElementById("btn-fullscreen");
+        const fsEl = document.documentElement;
+        const requestFs =
+          fsEl.requestFullscreen ||
+          fsEl.webkitRequestFullscreen ||
+          fsEl.msRequestFullscreen;
+        const exitFs =
+          document.exitFullscreen ||
+          document.webkitExitFullscreen ||
+          document.msExitFullscreen;
+
+        if (!requestFs) {
+          fsBtn.style.display = "none"; // API unsupported (e.g. iOS Safari)
+        } else {
+          const currentFsElement = () =>
+            document.fullscreenElement ||
+            document.webkitFullscreenElement ||
+            null;
+          const refreshFsIcon = () => {
+            fsBtn.textContent = currentFsElement() ? "⤢" : "⛶";
+          };
+          fsBtn.onclick = () => {
+            if (!currentFsElement()) {
+              const p = requestFs.call(fsEl);
+              if (p && p.catch) p.catch(() => {});
+            } else if (exitFs) {
+              exitFs.call(document);
+            }
+          };
+          document.addEventListener("fullscreenchange", refreshFsIcon);
+          document.addEventListener("webkitfullscreenchange", refreshFsIcon);
+        }
 
         // Volume slider + mute toggle -------------------------------------------
         const volSlider = document.getElementById("volume-slider");
