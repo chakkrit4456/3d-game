@@ -1825,6 +1825,17 @@
 
       const WALK_TIME_SCALE = 0.78;
       const WALK_PHASE_SPEED = 13;
+      // The run cadence is boosted beyond the literal ground-speed multiplier
+      // (CONFIG.PLAYER_RUN_MULTIPLIER) — matching it exactly read as barely
+      // different, since a modest 1.8x cycle speed is easy to miss. This
+      // extra multiplier is purely a game-feel exaggeration so sprinting is
+      // unmistakable at a glance, at the (imperceptible) cost of some foot
+      // sliding.
+      const RUN_ANIM_BOOST = 1.5;
+      const RUN_TIME_SCALE =
+        WALK_TIME_SCALE * CONFIG.PLAYER_RUN_MULTIPLIER * RUN_ANIM_BOOST;
+      const RUN_PHASE_SPEED =
+        WALK_PHASE_SPEED * CONFIG.PLAYER_RUN_MULTIPLIER * RUN_ANIM_BOOST;
 
       // Drives whichever animation system the loaded model supports.
       function animatePlayer(moving, running, delta = 0.016) {
@@ -1834,12 +1845,11 @@
             const useRunClip = running && player.actions.run;
             playPlayerAction(useRunClip ? "run" : "walk");
             if (!useRunClip && player.actions.walk) {
-              // No dedicated run clip: speed the walk cycle up to exactly
-              // match the sprint's ground-speed multiplier, applied instantly
-              // (not eased) so the switch to running reads clearly right
-              // away instead of gradually creeping up over ~1 second.
+              // No dedicated run clip: speed the walk cycle up, applied
+              // instantly (not eased) so the switch to running reads clearly
+              // right away instead of gradually creeping up over ~1 second.
               player.actions.walk.timeScale = running
-                ? WALK_TIME_SCALE * CONFIG.PLAYER_RUN_MULTIPLIER
+                ? RUN_TIME_SCALE
                 : WALK_TIME_SCALE;
             }
           } else {
@@ -1848,12 +1858,12 @@
           return;
         }
 
-        const phaseSpeed = running
-          ? WALK_PHASE_SPEED * CONFIG.PLAYER_RUN_MULTIPLIER
-          : WALK_PHASE_SPEED;
+        const phaseSpeed = running ? RUN_PHASE_SPEED : WALK_PHASE_SPEED;
         if (moving) player.walkPhase = (player.walkPhase || 0) + phaseSpeed * delta;
         const swing = Math.sin(player.walkPhase || 0);
-        const amp = moving ? 1 : 0;
+        // Bigger limb swings while sprinting sell the speed, not just a
+        // faster-ticking cycle.
+        const amp = moving ? (running ? 1.35 : 1) : 0;
 
         if (player.bones) {
           const b = player.bones;
@@ -3224,11 +3234,24 @@
 
         const joystickZone = document.getElementById("joystick-zone");
         const joystickKnob = document.getElementById("joystick-knob");
+        // `e.touches` lists every finger on screen, not just this zone's own
+        // — blindly reading touches[0] broke as soon as a second finger (the
+        // run button) was also down, since it could pick up that finger's
+        // position instead. Track this zone's own touch by identifier so it
+        // keeps working correctly no matter what else is being touched.
+        let joystickTouchId = null;
 
         const handleTouchMove = (e) => {
           audio.init();
-          if (!touchStartPos) return;
-          const touch = e.touches[0];
+          if (!touchStartPos || joystickTouchId === null) return;
+          let touch = null;
+          for (let i = 0; i < e.touches.length; i++) {
+            if (e.touches[i].identifier === joystickTouchId) {
+              touch = e.touches[i];
+              break;
+            }
+          }
+          if (!touch) return;
           const dx = touch.clientX - touchStartPos.x;
           const dy = touch.clientY - touchStartPos.y;
           const dist = Math.hypot(dx, dy);
@@ -3247,18 +3270,33 @@
         };
 
         joystickZone.addEventListener("touchstart", (e) => {
+          if (joystickTouchId !== null) return; // already tracking a finger
           const rect = joystickZone.getBoundingClientRect();
           touchStartPos = {
             x: rect.left + rect.width / 2,
             y: rect.top + rect.height / 2,
           };
+          joystickTouchId = e.changedTouches[0].identifier;
           handleTouchMove(e);
         });
 
         joystickZone.addEventListener("touchmove", handleTouchMove);
 
-        const resetJoystick = () => {
+        const resetJoystick = (e) => {
+          // A second finger (e.g. lifting off the run button) ending
+          // elsewhere must not reset a joystick drag that's still active.
+          if (e && e.changedTouches) {
+            let endedOurs = false;
+            for (let i = 0; i < e.changedTouches.length; i++) {
+              if (e.changedTouches[i].identifier === joystickTouchId) {
+                endedOurs = true;
+                break;
+              }
+            }
+            if (!endedOurs) return;
+          }
           touchStartPos = null;
+          joystickTouchId = null;
           joystickVector = { x: 0, y: 0 };
           joystickKnob.style.transform = `translate(0px, 0px)`;
         };
