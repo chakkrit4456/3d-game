@@ -76,15 +76,23 @@
         display: block;
       }
 
+      /* Bottom-center: an outstretched thumb reaches it equally well from
+         either side of a phone held in two hands. */
       #joystick-zone {
         bottom: max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem));
-        left: max(1.5rem, calc(env(safe-area-inset-left) + 1rem));
+        left: 50%;
+        transform: translateX(-50%);
       }
 
-      /* Bottom-right stays clear of the HUD (top) and joystick (bottom-left). */
       #btn-fullscreen {
         bottom: max(0.75rem, env(safe-area-inset-bottom));
         right: max(0.75rem, env(safe-area-inset-right));
+      }
+
+      /* Right next to the joystick — same reach, no re-gripping the phone. */
+      #btn-run {
+        bottom: max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem));
+        left: calc(50% + 4.5rem);
       }
 
       h1,
@@ -266,6 +274,7 @@
       #btn-restart-win,
       #btn-resume,
       #btn-quiz-link,
+      #btn-quiz-link-fail,
       #btn-close-how-to {
         background: linear-gradient(#ecd08a, #b98b32) !important;
         color: #2e2013 !important;
@@ -366,6 +375,19 @@
           #8a6d2b
         ) !important;
         border: 1px solid var(--gold-deep);
+      }
+
+      /* Higher-specificity than "#ui-layer button" so the run button stays a
+         round translucent pad instead of the plaque-styled default button. */
+      #ui-layer #btn-run {
+        border-radius: 9999px !important;
+        background: rgba(201, 163, 73, 0.3) !important;
+        border: 2px solid var(--gold-bright) !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+      }
+      #ui-layer #btn-run:active {
+        transform: scale(0.95);
+        background: rgba(201, 163, 73, 0.5) !important;
       }
 
       @keyframes floatUp {
@@ -490,13 +512,22 @@
       <!-- Virtual Joystick Area (Mobile) -->
       <div
         id="joystick-zone"
-        class="absolute bottom-6 left-6 w-28 h-28 sm:w-32 sm:h-32 rounded-full border-2 border-white/20 bg-white/5 backdrop-blur-sm pointer-events-auto flex items-center justify-center touch-none hidden"
+        class="absolute w-28 h-28 sm:w-32 sm:h-32 rounded-full border-2 border-white/20 bg-white/5 backdrop-blur-sm pointer-events-auto flex items-center justify-center touch-none hidden"
       >
         <div
           id="joystick-knob"
           class="w-12 h-12 rounded-full bg-amber-500/70 shadow-lg transform translate-x-0 translate-y-0"
         ></div>
       </div>
+
+      <!-- Run button (Mobile) -->
+      <button
+        id="btn-run"
+        class="absolute w-16 h-16 rounded-full border-2 border-amber-400/60 bg-amber-500/25 backdrop-blur-sm pointer-events-auto flex items-center justify-center text-2xl touch-none select-none active:scale-95 transition hidden"
+        aria-label="วิ่ง"
+      >
+        🏃
+      </button>
     </div>
 
     <!-- Fullscreen toggle: fixed above every screen/modal, always reachable -->
@@ -588,9 +619,9 @@
           <p class="flex items-start gap-2">
             🏃
             <span
-              ><b>การเคลื่อนที่:</b> ปุ่ม WASD / ลูกศร หรือ
-              ลากจอยสติ๊กบนมือถือ (กด <b>Shift</b> ค้างไว้ หรือลากจอยสติ๊กสุดขอบ
-              เพื่อวิ่ง)</span
+              ><b>การเคลื่อนที่:</b> ปุ่ม WASD / ลูกศร หรือลากจอยสติ๊กบนมือถือ
+              (ลากนิ้วบนหน้าจอเพื่อหมุนกล้อง) — กด <b>Shift</b> ค้างไว้ หรือกดปุ่ม
+              🏃 บนมือถือ เพื่อวิ่ง</span
             >
           </p>
           <p class="flex items-start gap-2">
@@ -756,7 +787,7 @@
 
         <div class="space-y-2.5">
           <a
-            href="https://forms.gle/EEervrQ3xcTsBNqY8"
+            href="https://forms.gle/8kRLaD6vzhiuKgdh7"
             target="_blank"
             rel="noopener noreferrer"
             id="btn-quiz-link"
@@ -808,6 +839,16 @@
             >
           </div>
         </div>
+
+        <a
+          href="https://forms.gle/8kRLaD6vzhiuKgdh7"
+          target="_blank"
+          rel="noopener noreferrer"
+          id="btn-quiz-link-fail"
+          class="w-full mb-3 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-extrabold rounded-xl shadow-lg active:scale-95 transition text-sm flex items-center justify-center gap-2"
+        >
+          📝 ไปทำแบบทดสอบความรู้
+        </a>
 
         <div class="flex gap-3">
           <button
@@ -1221,6 +1262,7 @@
       const keys = { w: false, a: false, s: false, d: false, shift: false };
       let joystickVector = { x: 0, y: 0 };
       let touchStartPos = null;
+      let touchRunPressed = false; // mobile "run" button held down
       const cameraControl = {
         yaw: 0,
         pitch: 0.58,
@@ -1266,13 +1308,18 @@
           500,
         );
 
+        // Phones/tablets get a lighter rendering configuration so the frame
+        // rate stays solid instead of dropping frames (shadows + MSAA + a
+        // high device pixel ratio are the most expensive knobs on mobile GPUs).
         renderer = new THREE.WebGLRenderer({
-          antialias: true,
+          antialias: !isTouchDevice,
           powerPreference: "high-performance",
         });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.shadowMap.enabled = true;
+        renderer.setPixelRatio(
+          Math.min(window.devicePixelRatio, isTouchDevice ? 1.5 : 2),
+        );
+        renderer.shadowMap.enabled = !isTouchDevice;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         container.appendChild(renderer.domElement);
 
@@ -1281,7 +1328,7 @@
 
         const sunLight = new THREE.DirectionalLight(0xffeedd, 1.2);
         sunLight.position.set(40, 60, 20);
-        sunLight.castShadow = true;
+        sunLight.castShadow = !isTouchDevice;
         sunLight.shadow.mapSize.width = 1024;
         sunLight.shadow.mapSize.height = 1024;
         sunLight.shadow.camera.near = 0.5;
@@ -1364,11 +1411,14 @@
         createWall(2, wallHeight, size, -half, wallHeight / 2, 0);
         createWall(2, wallHeight, size, half, wallHeight / 2, 0);
 
-        // Random palm trees (from the supplied beach prop pack) and buildings
+        // Random palm trees (from the supplied beach prop pack) and buildings.
+        // Fewer of them on phones/tablets: each is a separate draw call, and
+        // mobile GPUs are far more sensitive to draw-call count than desktop.
         const buildingMat = new THREE.MeshStandardMaterial({ color: 0x334155 });
         const windowMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
 
-        for (let i = 0; i < 35; i++) {
+        const treeAndBuildingCount = isTouchDevice ? 20 : 35;
+        for (let i = 0; i < treeAndBuildingCount; i++) {
           const rx = (Math.random() - 0.5) * (size - 16);
           const rz = (Math.random() - 0.5) * (size - 16);
 
@@ -1428,38 +1478,76 @@
            ======================================================================== */
       const BEACH_ASSET_PATH = "file_model/Modular%20Terrain%20Beach/";
 
+      // Every placement used to fire its own OBJLoader+MTLLoader network
+      // fetch and re-parse — e.g. the 3 palm models alone were reloaded and
+      // reparsed ~25+ times while the world built, which is real work
+      // competing with the main thread right as the mission starts (a
+      // classic cause of an initial stutter). Load each distinct file once,
+      // cache the parsed template, and clone() it (sharing geometry/material)
+      // for every other placement.
+      const beachPropCache = {}; // file -> { template: Object3D|null, waiters: [...] }
+
+      function placeBeachProp(template, position, rotationY, scale) {
+        const object = template.clone(true);
+        object.position.copy(position);
+        object.rotation.y = rotationY;
+        object.scale.setScalar(scale);
+        object.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        scene.add(object);
+      }
+
       function loadBeachProp(file, position, rotationY = 0, scale = 1) {
         if (!THREE.OBJLoader) {
           console.error("OBJLoader is unavailable; beach props were skipped");
           return;
         }
 
-        const addObjectToScene = (materials = null) => {
+        const entry = beachPropCache[file];
+        if (entry && entry.template) {
+          placeBeachProp(entry.template, position, rotationY, scale);
+          return;
+        }
+        if (entry) {
+          entry.waiters.push({ position, rotationY, scale }); // already loading
+          return;
+        }
+
+        const newEntry = (beachPropCache[file] = {
+          template: null,
+          waiters: [{ position, rotationY, scale }],
+        });
+
+        const resolve = (template) => {
+          newEntry.template = template;
+          newEntry.waiters.forEach((w) =>
+            placeBeachProp(template, w.position, w.rotationY, w.scale),
+          );
+          newEntry.waiters = [];
+        };
+
+        const loadObj = (materials = null) => {
           const objectLoader = new THREE.OBJLoader();
           objectLoader.setPath(BEACH_ASSET_PATH);
           if (materials) objectLoader.setMaterials(materials);
           objectLoader.load(
             file,
-            (object) => {
-              object.position.copy(position);
-              object.rotation.y = rotationY;
-              object.scale.setScalar(scale);
-              object.traverse((child) => {
-                if (child.isMesh) {
-                  child.castShadow = true;
-                  child.receiveShadow = true;
-                }
-              });
-              scene.add(object);
-            },
+            resolve,
             undefined,
-            () => console.warn(`Could not load beach prop: ${file}`),
+            () => {
+              console.warn(`Could not load beach prop: ${file}`);
+              delete beachPropCache[file]; // allow a later retry
+            },
           );
         };
 
         // Loading is asynchronous: a failed material must not hide its OBJ model.
         if (!THREE.MTLLoader) {
-          addObjectToScene();
+          loadObj();
           return;
         }
         const materialLoader = new THREE.MTLLoader();
@@ -1468,10 +1556,10 @@
           file.replace(".obj", ".mtl"),
           (materials) => {
             materials.preload();
-            addObjectToScene(materials);
+            loadObj(materials);
           },
           undefined,
-          () => addObjectToScene(),
+          () => loadObj(),
         );
       }
 
@@ -1821,10 +1909,11 @@
         container.appendChild(nameTagElement);
       }
 
+      const _nameTagScratch = new THREE.Vector3();
       function updateNameTagPosition() {
         if (!player || !nameTagElement) return;
 
-        const tempV = new THREE.Vector3();
+        const tempV = _nameTagScratch;
         player.getWorldPosition(tempV);
         // Float clear above the head (PLAYER_TARGET_HEIGHT) so it never
         // overlaps the character's face.
@@ -2102,8 +2191,14 @@
                 color: 0x8a8a8a,
                 roughness: 1,
                 metalness: 0,
+                // The source mesh has a few inverted/inconsistent normals;
+                // single-sided rendering left gaps you could see through
+                // from certain angles. Double-sided guarantees a solid look
+                // from every side.
+                side: THREE.DoubleSide,
               });
               c.castShadow = true;
+              c.receiveShadow = true;
             });
             rockTemplate = node;
           },
@@ -2224,15 +2319,20 @@
         }
       }
 
+      // Reused scratch objects: this runs up to ~10x per frame (player +
+      // every monster, twice each for axis-separated wall sliding), and a
+      // fresh Box3/Vector3 per call was enough allocation to trigger visible
+      // GC-pause stutter, especially on mobile.
+      const _collisionBox = new THREE.Box3();
+      const _collisionCenter = new THREE.Vector3();
+      const _collisionSize = new THREE.Vector3();
       function checkObstacleCollision(newPos, radius = 0.8) {
-        const playerBox = new THREE.Box3();
-        playerBox.setFromCenterAndSize(
-          new THREE.Vector3(newPos.x, 1, newPos.z),
-          new THREE.Vector3(radius * 2, 2, radius * 2),
-        );
+        _collisionCenter.set(newPos.x, 1, newPos.z);
+        _collisionSize.set(radius * 2, 2, radius * 2);
+        _collisionBox.setFromCenterAndSize(_collisionCenter, _collisionSize);
 
         for (let obs of obstacles) {
-          if (playerBox.intersectsBox(obs)) {
+          if (_collisionBox.intersectsBox(obs)) {
             return true;
           }
         }
@@ -2284,6 +2384,7 @@
         arms[1].rotation.x = THREE.MathUtils.lerp(arms[1].rotation.x, swing * 0.6, 0.3);
       }
 
+      const _toPlayerScratch = new THREE.Vector3();
       function updateEnemies(delta) {
         if (state.isPaused || !player) return;
 
@@ -2302,7 +2403,10 @@
           if (monster.mixer) monster.mixer.update(delta);
           if (monster.cooldown > 0) monster.cooldown -= delta;
 
-          const toPlayer = new THREE.Vector3().subVectors(
+          // Scratch vector, consumed synchronously within this iteration only
+          // (copied into monster.lungeDir when needed) — reused every monster,
+          // every frame, instead of allocating a fresh Vector3 each time.
+          const toPlayer = _toPlayerScratch.subVectors(
             playerPos,
             monster.mesh.position,
           );
@@ -2524,7 +2628,10 @@
         const LIGHT = new THREE.Color(0x9ae66e); // เขียวอ่อน
         const DARK = new THREE.Color(0x1b5e20); // เขียวเข้ม
 
-        for (let i = 0; i < 150; i++) {
+        // Each blade is its own draw call (unique tint material) — fewer of
+        // them on phones/tablets keeps the frame rate stutter-free.
+        const plantCount = isTouchDevice ? 70 : 150;
+        for (let i = 0; i < plantCount; i++) {
           const rx = (Math.random() - 0.5) * (size - 12);
           const rz = (Math.random() - 0.5) * (size - 12);
           if (Math.hypot(rx, rz) < 12) continue; // keep the player spawn clear
@@ -3028,6 +3135,7 @@
         // Prevent a held key from leaving the player moving after tabbing away.
         window.addEventListener("blur", () => {
           keys.w = keys.a = keys.s = keys.d = keys.shift = false;
+          touchRunPressed = false;
         });
 
         // Free look: pointer-lock the mouse; movement rotates the camera directly.
@@ -3153,6 +3261,23 @@
 
         joystickZone.addEventListener("touchend", resetJoystick);
         joystickZone.addEventListener("touchcancel", resetJoystick);
+
+        // Dedicated mobile run button — held down like a gamepad face button.
+        const runButton = document.getElementById("btn-run");
+        runButton.addEventListener(
+          "touchstart",
+          (e) => {
+            touchRunPressed = true;
+            audio.init();
+            e.preventDefault();
+          },
+          { passive: false },
+        );
+        const releaseRunButton = () => {
+          touchRunPressed = false;
+        };
+        runButton.addEventListener("touchend", releaseRunButton);
+        runButton.addEventListener("touchcancel", releaseRunButton);
       }
 
       function updatePlayerMovement(delta) {
@@ -3186,9 +3311,11 @@
           inputRight * Math.sin(cameraControl.yaw);
 
         const isMoving = Math.abs(moveX) > 0.1 || Math.abs(moveZ) > 0.1;
-        // Hold Shift on keyboard, or push the joystick all the way to its
-        // edge on mobile, to sprint.
-        const isRunning = isMoving && (keys.shift || joystickMagnitude > 0.9);
+        // Hold Shift on keyboard, push the joystick all the way to its edge,
+        // or hold the on-screen run button on mobile, to sprint.
+        const isRunning =
+          isMoving &&
+          (keys.shift || joystickMagnitude > 0.9 || touchRunPressed);
 
         if (isMoving) {
           const speed =
@@ -3419,6 +3546,7 @@
         document.getElementById("hud").classList.add("flex");
         if (isTouchDevice) {
           document.getElementById("joystick-zone").classList.remove("hidden");
+          document.getElementById("btn-run").classList.remove("hidden");
         }
 
         audio.playStart();
@@ -3532,6 +3660,8 @@
         document.getElementById("modal-pause").classList.add("hidden");
         document.getElementById("hud").classList.add("hidden");
         document.getElementById("joystick-zone").classList.add("hidden");
+        document.getElementById("btn-run").classList.add("hidden");
+        touchRunPressed = false;
         document.getElementById("screen-start").classList.remove("hidden");
       }
 
