@@ -1767,7 +1767,7 @@
               pick(/walk|jog|move/i),
             run: pick(/^run\b|run\.male|sprint/i),
           };
-          if (player.actions.walk) player.actions.walk.timeScale = 0.78;
+          if (player.actions.walk) player.actions.walk.timeScale = WALK_TIME_SCALE;
           if (player.actions.run) player.actions.run.timeScale = 1;
           player.actions.idle.play();
           player.activeAction = "idle";
@@ -1823,6 +1823,9 @@
         return 1 - Math.exp(-speed * delta);
       }
 
+      const WALK_TIME_SCALE = 0.78;
+      const WALK_PHASE_SPEED = 13;
+
       // Drives whichever animation system the loaded model supports.
       function animatePlayer(moving, running, delta = 0.016) {
         if (player.mixer) {
@@ -1831,14 +1834,13 @@
             const useRunClip = running && player.actions.run;
             playPlayerAction(useRunClip ? "run" : "walk");
             if (!useRunClip && player.actions.walk) {
-              // No dedicated run clip: speed the walk cycle up so feet don't
-              // slide relative to the faster sprint movement speed.
-              const targetScale = running ? 1.3 : 0.78;
-              player.actions.walk.timeScale = THREE.MathUtils.lerp(
-                player.actions.walk.timeScale,
-                targetScale,
-                smoothFactor(delta, 6),
-              );
+              // No dedicated run clip: speed the walk cycle up to exactly
+              // match the sprint's ground-speed multiplier, applied instantly
+              // (not eased) so the switch to running reads clearly right
+              // away instead of gradually creeping up over ~1 second.
+              player.actions.walk.timeScale = running
+                ? WALK_TIME_SCALE * CONFIG.PLAYER_RUN_MULTIPLIER
+                : WALK_TIME_SCALE;
             }
           } else {
             playPlayerAction("idle");
@@ -1846,7 +1848,9 @@
           return;
         }
 
-        const phaseSpeed = running ? 20 : 13;
+        const phaseSpeed = running
+          ? WALK_PHASE_SPEED * CONFIG.PLAYER_RUN_MULTIPLIER
+          : WALK_PHASE_SPEED;
         if (moving) player.walkPhase = (player.walkPhase || 0) + phaseSpeed * delta;
         const swing = Math.sin(player.walkPhase || 0);
         const amp = moving ? 1 : 0;
@@ -3263,21 +3267,22 @@
         joystickZone.addEventListener("touchcancel", resetJoystick);
 
         // Dedicated mobile run button — held down like a gamepad face button.
+        // Pointer Events (rather than raw touch events) unify touch/mouse/pen
+        // handling and are the more reliable choice across mobile browsers.
         const runButton = document.getElementById("btn-run");
-        runButton.addEventListener(
-          "touchstart",
-          (e) => {
-            touchRunPressed = true;
-            audio.init();
-            e.preventDefault();
-          },
-          { passive: false },
-        );
+        runButton.addEventListener("pointerdown", (e) => {
+          touchRunPressed = true;
+          audio.init();
+          e.preventDefault();
+        });
         const releaseRunButton = () => {
           touchRunPressed = false;
         };
-        runButton.addEventListener("touchend", releaseRunButton);
-        runButton.addEventListener("touchcancel", releaseRunButton);
+        runButton.addEventListener("pointerup", releaseRunButton);
+        runButton.addEventListener("pointercancel", releaseRunButton);
+        // A finger sliding off the button while held must not leave running
+        // stuck "on".
+        runButton.addEventListener("pointerleave", releaseRunButton);
       }
 
       function updatePlayerMovement(delta) {
