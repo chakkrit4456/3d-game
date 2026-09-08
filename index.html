@@ -84,9 +84,15 @@
         transform: translateX(-50%);
       }
 
+      /* Top-right corner. The HUD reserves space on its right edge (below)
+         so its own top-right button never sits underneath this one. */
       #btn-fullscreen {
-        bottom: max(0.75rem, env(safe-area-inset-bottom));
+        top: max(0.75rem, env(safe-area-inset-top));
         right: max(0.75rem, env(safe-area-inset-right));
+      }
+
+      #hud {
+        padding-right: calc(3.5rem + env(safe-area-inset-right));
       }
 
       /* Right next to the joystick — same reach, no re-gripping the phone. */
@@ -152,6 +158,7 @@
       }
 
       /* ---------- Torch-lit overlay backdrops ---------- */
+      #screen-loading,
       #screen-start,
       #modal-how-to,
       #modal-question,
@@ -210,6 +217,7 @@
         background: rgba(120, 85, 40, 0.12) !important;
       }
 
+      #screen-loading h1,
       #screen-start h1 {
         background: none !important;
         -webkit-text-fill-color: currentColor !important;
@@ -541,10 +549,50 @@
 
     <!-- MODAL CONTAINERS -->
 
+    <!-- LOADING SCREEN — shown first; the start screen only appears once
+         every 3D asset and sound file has finished loading. -->
+    <div
+      id="screen-loading"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/95"
+    >
+      <div
+        class="glass-panel max-w-sm w-full p-6 sm:p-8 rounded-3xl text-center border border-amber-500/40 glow-box-yellow"
+      >
+        <div
+          class="inline-block p-3 rounded-2xl bg-amber-500/10 mb-3 border border-amber-500/30"
+        >
+          <span class="text-4xl">⚔️🛡️</span>
+        </div>
+        <h1
+          class="text-xl sm:text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 mb-5"
+        >
+          MISSION: ZERO BRIBE
+        </h1>
+        <div
+          class="w-full h-3 rounded-full overflow-hidden border border-amber-500/30 bg-slate-900/80 mb-2"
+        >
+          <div
+            id="loading-bar"
+            class="h-full bg-gradient-to-r from-amber-400 to-yellow-300 transition-all duration-200 ease-out"
+            style="width: 0%"
+          ></div>
+        </div>
+        <p class="text-xs" style="color: var(--ink-soft)">
+          <span
+            id="loading-percent"
+            class="font-mono font-bold"
+            style="color: #7a4a12"
+            >0%</span
+          >
+          — กำลังโหลดทรัพยากรของภารกิจ...
+        </p>
+      </div>
+    </div>
+
     <!-- START SCREEN -->
     <div
       id="screen-start"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md hidden"
     >
       <div
         class="glass-panel max-w-md w-full p-6 sm:p-8 rounded-3xl text-center border border-amber-500/40 glow-box-yellow"
@@ -907,7 +955,7 @@
         GAME_TIME: 180,
         WORLD_SIZE: 300,
         PLAYER_SPEED: 0.11,
-        PLAYER_RUN_MULTIPLIER: 1.8, // hold Shift to sprint
+        PLAYER_RUN_MULTIPLIER: 2.4, // hold Shift to sprint
         ENEMY_SPEED: 0.065,
         ENEMY_DETECT_DIST: 18,
         TOTAL_QUESTIONS_PER_GAME: 5,
@@ -1153,16 +1201,71 @@
 
       const audio = new SoundSystem();
 
+      /* ==========================================================================
+           LOADING SCREEN — every 3D asset and sound file registers here, and
+           the start screen only appears once all of them have finished (or
+           a generous timeout forces it open regardless, so one stalled file
+           can never trap a player on the loading screen forever).
+           ========================================================================== */
+      const AssetLoadingManager = (() => {
+        let total = 0;
+        let loaded = 0;
+        let finished = false;
+
+        function updateUI() {
+          const pct = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 100;
+          const bar = document.getElementById("loading-bar");
+          const pctEl = document.getElementById("loading-percent");
+          if (bar) bar.style.width = pct + "%";
+          if (pctEl) pctEl.innerText = pct + "%";
+        }
+
+        function finish() {
+          if (finished) return;
+          finished = true;
+          loaded = total;
+          updateUI();
+          setTimeout(() => {
+            const loadingScreen = document.getElementById("screen-loading");
+            const startScreen = document.getElementById("screen-start");
+            if (loadingScreen) loadingScreen.classList.add("hidden");
+            if (startScreen) startScreen.classList.remove("hidden");
+          }, 250);
+        }
+
+        // Returns a one-shot completion callback for this task.
+        function register() {
+          total++;
+          updateUI();
+          let done = false;
+          return () => {
+            if (done) return;
+            done = true;
+            loaded++;
+            updateUI();
+            if (loaded >= total) finish();
+          };
+        }
+
+        function armHardTimeout(ms) {
+          setTimeout(finish, ms);
+        }
+
+        return { register, armHardTimeout };
+      })();
+
       /* Background music (soude/Woodland Fantasy.mp3) --------------------------- */
       const bgm = new Audio("soude/Woodland%20Fantasy.mp3");
       bgm.loop = true;
       bgm.volume = 0.35;
+      bgm.preload = "auto";
 
       // Monster roar warning, played just before a rock is thrown.
       const monsterRoar = new Audio(
         "soude/monster_sfx_pack_2/monster-1.wav",
       );
       monsterRoar.volume = 0.55;
+      monsterRoar.preload = "auto";
       function playMonsterRoar() {
         if (!audio.enabled) return;
         try {
@@ -1176,6 +1279,30 @@
       // Warning crack, played ROCK_WINDUP seconds before a rock is thrown.
       const rockWarn = new Audio("soude/crack11.mp3");
       rockWarn.volume = 0.6;
+      rockWarn.preload = "auto";
+
+      // Preloading (not playing) these three during the loading screen —
+      // mobile browsers (iOS Safari especially) can restrict media preload
+      // until a user gesture, so each also gets a short individual timeout
+      // in addition to the manager's global safety net. Called from inside
+      // window.onload (not here at script-parse time): these files are tiny
+      // and can finish "loading" before the 3D assets even start
+      // registering, which let the loading screen think it was 100% done
+      // and reveal the start screen while everything else was still loading.
+      function registerAudioPreloads() {
+        [bgm, monsterRoar, rockWarn].forEach((el) => {
+          const complete = AssetLoadingManager.register();
+          let settled = false;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            complete();
+          };
+          el.addEventListener("canplaythrough", done, { once: true });
+          el.addEventListener("error", done, { once: true });
+          setTimeout(done, 6000);
+        });
+      }
 
       /* Master volume — one slider drives the synth SFX and every music/voice clip. */
       const BASE_VOL = { bgm: 0.35, roar: 0.55, warn: 0.6 };
@@ -1521,6 +1648,7 @@
           template: null,
           waiters: [{ position, rotationY, scale }],
         });
+        const completeLoading = AssetLoadingManager.register();
 
         const resolve = (template) => {
           newEntry.template = template;
@@ -1528,6 +1656,7 @@
             placeBeachProp(template, w.position, w.rotationY, w.scale),
           );
           newEntry.waiters = [];
+          completeLoading();
         };
 
         const loadObj = (materials = null) => {
@@ -1541,6 +1670,7 @@
             () => {
               console.warn(`Could not load beach prop: ${file}`);
               delete beachPropCache[file]; // allow a later retry
+              completeLoading();
             },
           );
         };
@@ -1678,16 +1808,25 @@
       const PLAYER_TARGET_HEIGHT = 4.2;
       const PLAYER_FACING = 0; // rotate model so its face points to +Z
 
-      function loadPlayerModel(list = PLAYER_MODELS) {
-        if (!THREE.GLTFLoader || !list.length) return;
+      function loadPlayerModel(list = PLAYER_MODELS, onDone = null) {
+        // One loading-screen task for the whole fallback chain, regardless
+        // of how many candidate URLs it takes to find one that loads.
+        const complete = onDone || AssetLoadingManager.register();
+        if (!THREE.GLTFLoader || !list.length) {
+          complete();
+          return;
+        }
         const [url, ...rest] = list;
         new THREE.GLTFLoader().load(
           url,
-          (gltf) => setupPlayerModel(gltf, url),
+          (gltf) => {
+            setupPlayerModel(gltf, url);
+            complete();
+          },
           undefined,
           () => {
             console.warn(`${url} not found`);
-            loadPlayerModel(rest); // fall through to the next candidate
+            loadPlayerModel(rest, complete); // fall through to the next candidate
           },
         );
       }
@@ -1831,7 +1970,7 @@
       // extra multiplier is purely a game-feel exaggeration so sprinting is
       // unmistakable at a glance, at the (imperceptible) cost of some foot
       // sliding.
-      const RUN_ANIM_BOOST = 1.5;
+      const RUN_ANIM_BOOST = 1.2;
       const RUN_TIME_SCALE =
         WALK_TIME_SCALE * CONFIG.PLAYER_RUN_MULTIPLIER * RUN_ANIM_BOOST;
       const RUN_PHASE_SPEED =
@@ -1936,7 +2075,17 @@
         tempV.project(camera);
 
         const x = (tempV.x * 0.5 + 0.5) * window.innerWidth;
-        const y = (tempV.y * -0.5 + 0.5) * window.innerHeight;
+        let y = (tempV.y * -0.5 + 0.5) * window.innerHeight;
+
+        // In landscape on a short phone screen, the player's projected head
+        // position can land underneath the HUD bar — clamp the tag below it
+        // (getBoundingClientRect is 0-height while the HUD is hidden, so
+        // this is a no-op outside gameplay).
+        const hudRect = document.getElementById("hud").getBoundingClientRect();
+        if (hudRect.height > 0) {
+          const minY = hudRect.bottom + 12 + (nameTagElement.offsetHeight || 40);
+          if (y < minY) y = minY;
+        }
 
         nameTagElement.style.transform = `translate(-50%, -100%) translate(${x}px,${y}px)`;
         nameTagElement.style.opacity = tempV.z < 1 ? "1" : "0";
@@ -1963,8 +2112,10 @@
           monsterSkinTexture.wrapT = THREE.RepeatWrapping;
         } catch (e) {}
 
+        const completeLoading = AssetLoadingManager.register();
         if (!THREE.GLTFLoader) {
           console.warn("GLTFLoader unavailable; using procedural forest monsters");
+          completeLoading();
           return;
         }
         const loader = new THREE.GLTFLoader();
@@ -1997,12 +2148,15 @@
             };
             // Swap in the real mesh if a mission is already running.
             if (state.isPlaying) spawnEnemies();
+            completeLoading();
           },
           undefined,
-          () =>
+          () => {
             console.warn(
               `${MONSTER_GLB} not found — using procedural forest monsters`,
-            ),
+            );
+            completeLoading();
+          },
         );
       }
 
@@ -2190,7 +2344,11 @@
            RANGED ATTACK — nearest monster throws a grey rock (02mountains.glb)
            ------------------------------------------------------------------ */
       function loadRockModel() {
-        if (!THREE.GLTFLoader) return;
+        const completeLoading = AssetLoadingManager.register();
+        if (!THREE.GLTFLoader) {
+          completeLoading();
+          return;
+        }
         new THREE.GLTFLoader().load(
           "file_model/02mountains.glb",
           (gltf) => {
@@ -2198,7 +2356,10 @@
               gltf.scene.children.find((c) => /rock/i.test(c.name)) ||
               gltf.scene.children.find((c) => /circle/i.test(c.name)) ||
               gltf.scene.children[0];
-            if (!node) return;
+            if (!node) {
+              completeLoading();
+              return;
+            }
             node.traverse((c) => {
               if (!c.isMesh) return;
               c.material = new THREE.MeshStandardMaterial({
@@ -2215,9 +2376,13 @@
               c.receiveShadow = true;
             });
             rockTemplate = node;
+            completeLoading();
           },
           undefined,
-          () => console.warn("02mountains.glb not found — no rock attacks"),
+          () => {
+            console.warn("02mountains.glb not found — no rock attacks");
+            completeLoading();
+          },
         );
       }
 
@@ -2547,7 +2712,11 @@
            ========================================================================== */
       // Score pickups use this crystal model (02crystals.glb) when it loads.
       function loadCrystalModel() {
-        if (!THREE.GLTFLoader) return;
+        const completeLoading = AssetLoadingManager.register();
+        if (!THREE.GLTFLoader) {
+          completeLoading();
+          return;
+        }
         new THREE.GLTFLoader().load(
           "file_model/02crystals.glb",
           (gltf) => {
@@ -2569,16 +2738,23 @@
               });
             });
             crystalTemplate = s;
+            completeLoading();
           },
           undefined,
-          () =>
-            console.warn("02crystals.glb not found — score pickups stay boxes"),
+          () => {
+            console.warn("02crystals.glb not found — score pickups stay boxes");
+            completeLoading();
+          },
         );
       }
 
       // Question pickups use this book model (02SimpleBook1.glb) when it loads.
       function loadBookModel() {
-        if (!THREE.GLTFLoader) return;
+        const completeLoading = AssetLoadingManager.register();
+        if (!THREE.GLTFLoader) {
+          completeLoading();
+          return;
+        }
         new THREE.GLTFLoader().load(
           "file_model/02SimpleBook1.glb",
           (gltf) => {
@@ -2610,24 +2786,35 @@
               }
             });
             bookTemplate = s;
+            completeLoading();
           },
           undefined,
-          () =>
-            console.warn("02SimpleBook1.glb not found — question pickups stay boxes"),
+          () => {
+            console.warn("02SimpleBook1.glb not found — question pickups stay boxes");
+            completeLoading();
+          },
         );
       }
 
       // Grass / plant decoration scattered across the terrain (02plants.glb).
       function loadPlantsModel() {
-        if (!THREE.GLTFLoader) return;
+        const completeLoading = AssetLoadingManager.register();
+        if (!THREE.GLTFLoader) {
+          completeLoading();
+          return;
+        }
         new THREE.GLTFLoader().load(
           "file_model/02plants.glb",
           (gltf) => {
             plantsTemplate = gltf.scene;
             scatterPlants();
+            completeLoading();
           },
           undefined,
-          () => console.warn("02plants.glb not found — no grass scatter"),
+          () => {
+            console.warn("02plants.glb not found — no grass scatter");
+            completeLoading();
+          },
         );
       }
 
@@ -2720,7 +2907,11 @@
 
       function loadPotionModel() {
         potionTemplate = buildProceduralPotion(); // instant fallback
-        if (!THREE.FBXLoader) return;
+        const completeLoading = AssetLoadingManager.register();
+        if (!THREE.FBXLoader) {
+          completeLoading();
+          return;
+        }
         try {
           const tex = new THREE.TextureLoader().setPath(
             "file_model/Potion_1/tex/",
@@ -2744,13 +2935,17 @@
                 }
               });
               potionTemplate = obj;
+              completeLoading();
             },
             undefined,
-            () =>
-              console.warn("Potion_1.fbx failed — using procedural potion"),
+            () => {
+              console.warn("Potion_1.fbx failed — using procedural potion");
+              completeLoading();
+            },
           );
         } catch (e) {
           console.warn("Potion loader error", e);
+          completeLoading();
         }
       }
 
@@ -2789,7 +2984,11 @@
 
       function loadChestModel() {
         chestTemplate = buildProceduralChest(); // instant fallback
-        if (!THREE.OBJLoader) return;
+        const completeLoading = AssetLoadingManager.register();
+        if (!THREE.OBJLoader) {
+          completeLoading();
+          return;
+        }
         const addFromObj = (materials = null) => {
           const objLoader = new THREE.OBJLoader();
           objLoader.setPath(BEACH_ASSET_PATH);
@@ -2804,12 +3003,15 @@
                 }
               });
               chestTemplate = object;
+              completeLoading();
             },
             undefined,
-            () =>
+            () => {
               console.warn(
                 "Prop_Treasure_Chest.obj failed — using procedural chest",
-              ),
+              );
+              completeLoading();
+            },
           );
         };
         if (!THREE.MTLLoader) {
@@ -3234,26 +3436,22 @@
 
         const joystickZone = document.getElementById("joystick-zone");
         const joystickKnob = document.getElementById("joystick-knob");
-        // `e.touches` lists every finger on screen, not just this zone's own
-        // — blindly reading touches[0] broke as soon as a second finger (the
-        // run button) was also down, since it could pick up that finger's
-        // position instead. Track this zone's own touch by identifier so it
-        // keeps working correctly no matter what else is being touched.
-        let joystickTouchId = null;
+        // Pointer Events (with capture), matching the run button, instead of
+        // raw touch events. Every pointer/finger gets its own unique
+        // pointerId that the browser hit-tests independently, so holding the
+        // run button and dragging the joystick at the same time works
+        // reliably on both Android and iOS. setPointerCapture is what keeps
+        // the drag tracking correctly once the finger moves outside the
+        // small joystick circle (touch events do this implicitly; pointer
+        // events need it requested explicitly).
+        let joystickPointerId = null;
 
-        const handleTouchMove = (e) => {
+        const handleJoystickMove = (e) => {
+          if (joystickPointerId === null || e.pointerId !== joystickPointerId)
+            return;
           audio.init();
-          if (!touchStartPos || joystickTouchId === null) return;
-          let touch = null;
-          for (let i = 0; i < e.touches.length; i++) {
-            if (e.touches[i].identifier === joystickTouchId) {
-              touch = e.touches[i];
-              break;
-            }
-          }
-          if (!touch) return;
-          const dx = touch.clientX - touchStartPos.x;
-          const dy = touch.clientY - touchStartPos.y;
+          const dx = e.clientX - touchStartPos.x;
+          const dy = e.clientY - touchStartPos.y;
           const dist = Math.hypot(dx, dy);
           const maxRadius = 45;
 
@@ -3269,40 +3467,35 @@
           joystickVector.y = ky / maxRadius;
         };
 
-        joystickZone.addEventListener("touchstart", (e) => {
-          if (joystickTouchId !== null) return; // already tracking a finger
+        joystickZone.addEventListener("pointerdown", (e) => {
+          if (joystickPointerId !== null) return; // already tracking a finger
+          joystickPointerId = e.pointerId;
           const rect = joystickZone.getBoundingClientRect();
           touchStartPos = {
             x: rect.left + rect.width / 2,
             y: rect.top + rect.height / 2,
           };
-          joystickTouchId = e.changedTouches[0].identifier;
-          handleTouchMove(e);
+          // Capture extends tracking once the finger drags outside the small
+          // circle; if it ever fails, still fall back to plain hit-testing
+          // rather than leaving the joystick half-initialised.
+          try {
+            joystickZone.setPointerCapture(e.pointerId);
+          } catch (err) {}
+          handleJoystickMove(e);
         });
 
-        joystickZone.addEventListener("touchmove", handleTouchMove);
+        joystickZone.addEventListener("pointermove", handleJoystickMove);
 
         const resetJoystick = (e) => {
-          // A second finger (e.g. lifting off the run button) ending
-          // elsewhere must not reset a joystick drag that's still active.
-          if (e && e.changedTouches) {
-            let endedOurs = false;
-            for (let i = 0; i < e.changedTouches.length; i++) {
-              if (e.changedTouches[i].identifier === joystickTouchId) {
-                endedOurs = true;
-                break;
-              }
-            }
-            if (!endedOurs) return;
-          }
+          if (e && e.pointerId !== joystickPointerId) return;
           touchStartPos = null;
-          joystickTouchId = null;
+          joystickPointerId = null;
           joystickVector = { x: 0, y: 0 };
           joystickKnob.style.transform = `translate(0px, 0px)`;
         };
 
-        joystickZone.addEventListener("touchend", resetJoystick);
-        joystickZone.addEventListener("touchcancel", resetJoystick);
+        joystickZone.addEventListener("pointerup", resetJoystick);
+        joystickZone.addEventListener("pointercancel", resetJoystick);
 
         // Dedicated mobile run button — held down like a gamepad face button.
         // Pointer Events (rather than raw touch events) unify touch/mouse/pen
@@ -3754,6 +3947,16 @@
       }
 
       window.onload = () => {
+        // Absolute safety net: never leave a player stuck on the loading
+        // screen if one asset stalls (slow connection, blocked request…).
+        AssetLoadingManager.armHardTimeout(12000);
+
+        // Registering every asset — audio included — synchronously in this
+        // one block is what keeps the loading-manager's task count accurate:
+        // no completion callback can fire until this whole function returns,
+        // so the total can never be read as "done" while some of these
+        // calls have not registered their task yet.
+        registerAudioPreloads();
         initThree();
         createPlayer();
         initControls();
